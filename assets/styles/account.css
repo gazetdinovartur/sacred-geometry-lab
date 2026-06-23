@@ -1,0 +1,88 @@
+.auth-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 1.5rem 0;
+}
+
+.account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pattern-list {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pattern-list__item {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: var(--bg-elevated);
+}
+
+.pattern-list__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.pattern-list__preview {
+  max-height: 120px;
+  overflow: hidden;
+  opacity: 0.85;
+}
+
+.pattern-list__preview svg {
+  width: 100%;
+  height: auto;
+}
+
+.pattern-list__actions {
+  margin-bottom: 0.5rem;
+}
+
+.voice-profile-panel {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+}
+
+.voice-profile-panel__title {
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0 0 0.5rem;
+}
+
+.voice-profile-panel__text {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+.account-danger {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.page__note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.flash--error {
+  color: #b54a4a;
+}

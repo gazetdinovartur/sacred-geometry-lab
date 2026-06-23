@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache">
+    <php>
+        <server name="KERNEL_CLASS" value="App\Kernel"/>
+        <server name="APP_ENV" value="test"/>
+        <server name="APP_DEBUG" value="0"/>
+        <server name="APP_SECRET" value="test_secret"/>
+        <server name="DEFAULT_URI" value="http://localhost"/>
+    </php>
+    <testsuites>
+        <testsuite name="Sacred Geometry Lab">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+</phpunit>

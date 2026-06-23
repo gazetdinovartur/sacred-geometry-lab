@@ -1,0 +1,181 @@
+{% extends 'base.html.twig' %}
+
+{% block body %}
+<section class="lab">
+    <div class="lab__intro">
+        <h1 class="lab__question">Как ты сейчас?</h1>
+        <p class="lab__mode-hint" x-text="$store.lab.modeHint()" x-show="$store.lab.onLabPage"></p>
+    </div>
+
+    <div class="lab__workspace" :class="{ 'is-fullscreen': $store.lab.isFullscreen }">
+        <div class="lab__fullscreen-bar">
+            <div class="mode-switch mode-switch--fullscreen">
+                <button type="button"
+                        class="mode-switch__btn"
+                        :class="{ 'is-active': $store.lab.mode === 'live' }"
+                        @click="$store.lab.setMode('live')">
+                    Момент
+                </button>
+                <button type="button"
+                        class="mode-switch__btn"
+                        :class="{ 'is-active': $store.lab.mode === 'process' }"
+                        @click="$store.lab.setMode('process')">
+                    Процесс
+                </button>
+                <button type="button"
+                        class="mode-switch__btn"
+                        :class="{ 'is-active': $store.lab.mode === 'dialog' }"
+                        @click="$store.lab.setMode('dialog')">
+                    Диалог
+                </button>
+            </div>
+            <button type="button"
+                    class="btn btn--ghost btn--sm lab__fullscreen-exit"
+                    @click="$store.lab.toggleFullscreen()">
+                Свернуть
+            </button>
+        </div>
+
+        <div class="mandala-wrap" :class="{ 'is-listening': $store.lab.isActive && !$store.lab.isPaused }">
+            <button type="button"
+                    class="mandala-fullscreen"
+                    @click="$store.lab.toggleFullscreen()"
+                    :aria-label="$store.lab.isFullscreen ? 'Выйти из полноэкранного режима' : 'На весь экран'">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+            </button>
+            <canvas id="mandala-canvas" class="mandala-canvas" width="800" height="800" aria-label="Мандала"></canvas>
+            <p class="mandala-status"
+               :class="{ 'mandala-status--notice': $store.lab.status }"
+               x-text="$store.lab.status"
+               x-show="$store.lab.status && !$store.lab.isCalibrating"></p>
+            <div class="calibration-overlay" x-show="$store.lab.isCalibrating">
+                <p class="calibration-overlay__title">Калибровка · ~12 сек</p>
+                <p class="calibration-overlay__prompt" x-text="$store.lab.calibrationPrompt"></p>
+                <div class="calibration-overlay__bar">
+                    <div class="calibration-overlay__fill"
+                         :style="`width: ${$store.lab.calibrationProgress}%`"></div>
+                </div>
+                <button type="button"
+                        class="btn btn--ghost btn--sm calibration-overlay__skip"
+                        @click="$store.lab.skipCalibration()">
+                    Пропустить
+                </button>
+            </div>
+        </div>
+
+        <div class="widgets" x-show="($store.lab.isActive || $store.lab.hasSession) && !$store.lab.isCalibrating">
+            <div class="widget widget--rms" title="RMS → радиус внешнего кольца">
+                <span class="widget__label">Уровень</span>
+                <span class="widget__desc">громкость → кольцо</span>
+                <div class="widget__bar">
+                    <div class="widget__fill" :style="`width: ${$store.lab.rmsNorm}%`"></div>
+                </div>
+            </div>
+            <div class="widget widget--pitch" title="f₀ → лучи и контур спирали">
+                <span class="widget__label">Частота</span>
+                <span class="widget__desc">тон → лучи · лепестки</span>
+                <span class="widget__value" x-text="$store.lab.frequencyLabel"></span>
+            </div>
+            <div class="widget widget--symmetry" title="Onset → симметрия N">
+                <span class="widget__label">Симметрия</span>
+                <span class="widget__desc">ритм → звезда</span>
+                <span class="widget__value" x-text="$store.lab.symmetry"></span>
+            </div>
+            <div class="widget widget--motif" title="Последний узор от голоса">
+                <span class="widget__label">Узор</span>
+                <span class="widget__desc">звук → форма</span>
+                <span class="widget__value" x-text="$store.lab.activeMotif"></span>
+            </div>
+            <div class="widget widget--silence" title="Тишина — Rest & Breath">
+                <span class="widget__label">Покой</span>
+                <span class="widget__desc">тишина → дыхание</span>
+                <span class="widget__value" x-text="$store.lab.silenceLabel"></span>
+            </div>
+            <div class="widget" x-show="$store.lab.mode === 'dialog'" title="Насколько оба голоса звучат одновременно">
+                <span class="widget__label">Контакт</span>
+                <span class="widget__desc">перекрытие</span>
+                <span class="widget__value" x-text="$store.lab.overlapLabel"></span>
+            </div>
+        </div>
+
+        <div class="process-panel"
+             x-show="$store.lab.mode === 'process' && ($store.lab.isActive || $store.lab.timeline.length)">
+            <div class="process-panel__header">
+                <span class="process-panel__title">След процесса</span>
+                <button type="button"
+                        class="btn btn--ghost btn--sm"
+                        x-show="$store.lab.activeSnapshot !== null && $store.lab.hasSession"
+                        @click="$store.lab.showLive()">
+                    Сейчас
+                </button>
+            </div>
+            <p class="process-panel__hint"
+               x-show="$store.lab.isActive && !$store.lab.timeline.length">
+                Говорите — мандала собирается лепестками по тону и симметрии. «Стоп» — итог.
+            </p>
+            <p class="process-panel__hint"
+               x-show="!$store.lab.isActive && $store.lab.activeSnapshot === -1">
+                Итог — наложение всех этапов. Нажмите «Сейчас», чтобы вернуться к последнему кадру.
+            </p>
+            <div class="process-timeline" x-show="$store.lab.timeline.length">
+                <template x-for="entry in $store.lab.timeline" :key="entry.index">
+                    <button type="button"
+                            class="process-timeline__item"
+                            :class="{
+                                'is-active': $store.lab.activeSnapshot === entry.index,
+                                'is-composite': entry.isComposite
+                            }"
+                            @click="$store.lab.selectSnapshot(entry.index)"
+                            x-text="entry.label"></button>
+                </template>
+            </div>
+        </div>
+
+        <div class="lab__controls">
+            <button type="button"
+                    class="btn btn--primary"
+                    @click="$store.lab.primaryAction()"
+                    x-show="!$store.lab.isActive"
+                    :disabled="$store.lab.isStarting">
+                <span x-text="$store.lab.isStarting ? 'Подключение…' : $store.lab.primaryLabel()"></span>
+            </button>
+            <button type="button"
+                    class="btn btn--ghost"
+                    @click="$store.lab.pause()"
+                    x-show="$store.lab.isActive"
+                    :disabled="!$store.lab.isActive">
+                <span x-text="$store.lab.isPaused ? 'Продолжить' : 'Пауза'"></span>
+            </button>
+            <button type="button"
+                    class="btn btn--ghost"
+                    @click="$store.lab.stop()"
+                    x-show="$store.lab.isActive || $store.lab.hasSession">
+                Стоп
+            </button>
+            <button type="button"
+                    class="btn btn--ghost"
+                    @click="$store.lab.toggleFullscreen()"
+                    :aria-label="$store.lab.isFullscreen ? 'Свернуть' : 'На весь экран'">
+                <span x-text="$store.lab.isFullscreen ? 'Свернуть' : 'На весь экран'"></span>
+            </button>
+            <button type="button"
+                    class="btn btn--ghost"
+                    x-show="!$store.lab.isActive && $store.lab.hasSession"
+                    @click="$store.lab.recalibrate()">
+                Перекалибровать
+            </button>
+            <div class="export-group" x-show="$store.lab.hasSession && !$store.lab.isActive">
+                <button type="button" class="btn btn--ghost" @click="$store.lab.exportSvg()">SVG</button>
+                <button type="button" class="btn btn--ghost" @click="$store.lab.exportPng()">PNG</button>
+                <button type="button"
+                        class="btn btn--ghost"
+                        x-show="$store.lab.mode === 'process' && $store.lab.timeline.length"
+                        @click="$store.lab.exportFrames()">Кадры ZIP</button>
+                <button type="button" class="btn btn--ghost" @click="$store.lab.savePattern()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

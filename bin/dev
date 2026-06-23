@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${ROOT_DIR}"
+
+case "${1:-}" in
+  up)
+    docker compose up -d --build
+    echo ""
+    echo "→ http://localhost:8083"
+    echo "→ Mailpit http://localhost:8028"
+    ;;
+  down)
+    docker compose down
+    ;;
+  logs)
+    docker compose logs -f "${2:-}"
+    ;;
+  shell)
+    docker compose exec php bash
+    ;;
+  migrate)
+    docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
+    ;;
+  assets)
+    npm run build
+    ;;
+  watch)
+    npm run dev
+    ;;
+  test)
+    npm run test
+    php bin/phpunit
+    ;;
+  *)
+    cat <<'EOF'
+Использование:
+  bin/dev up       Запустить Docker (nginx :8083, mysql :3310)
+  bin/dev down     Остановить стек
+  bin/dev logs     Логи контейнеров
+  bin/dev shell    Shell в PHP-контейнере
+  bin/dev cache    Очистить кэш Symfony
+  bin/dev migrate  Применить миграции
+  bin/dev assets   Собрать frontend (Vite → public/build)
+  bin/dev watch    Vite dev-сервер с hot reload (:5174)
+  bin/dev test     Vitest + PHPUnit
+
+После правок TS/CSS: npm run build  или  bin/dev watch + hard refresh (Cmd+Shift+R)
+EOF
+    ;;
+esac

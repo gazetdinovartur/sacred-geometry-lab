@@ -1,0 +1,21 @@
+{
+  "name": "sacred-geometry-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.6"
+  },
+  "dependencies": {
+    "alpinejs": "^3.14.9",
+    "jszip": "^3.10.1",
+    "paper": "^0.12.18"
+  }
+}

@@ -1,0 +1,21 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Кабинет — Sacred Geometry Lab{% endblock %}
+
+{% block body %}
+<article class="page prose">
+    <h1>Личный кабинет</h1>
+    <p>Войдите, чтобы сохранять узоры и возвращаться к ним. Без входа лаборатория на главной работает полностью.</p>
+
+    {% for message in app.flashes('error') %}
+        <p class="flash flash--error">{{ message }}</p>
+    {% endfor %}
+
+    <div class="auth-buttons">
+        <a href="{{ path('auth_google_start') }}" class="btn btn--primary">Войти через Google</a>
+        <a href="{{ path('auth_vk_start') }}" class="btn btn--ghost">Войти через VK</a>
+    </div>
+
+    <p class="page__note">Для Google и VK нужны ключи в <code>.env.local</code> на сервере.</p>
+</article>
+{% endblock %}

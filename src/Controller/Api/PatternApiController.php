@@ -1,0 +1,115 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller\Api;
+
+use App\Entity\Pattern;
+use App\Entity\User;
+use App\Repository\PatternRepository;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
+
+#[Route('/api/patterns')]
+final class PatternApiController extends AbstractController
+{
+    public function __construct(
+        private readonly EntityManagerInterface $entityManager,
+        private readonly PatternRepository $patterns,
+    ) {
+    }
+
+    #[Route('', name: 'api_patterns_list', methods: ['GET'])]
+    #[IsGranted('ROLE_USER')]
+    public function list(): JsonResponse
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $data = array_map(static fn (Pattern $p): array => [
+            'id' => $p->getId(),
+            'mode' => $p->getMode(),
+            'geometryStyle' => $p->getGeometryStyle(),
+            'title' => $p->getTitle(),
+            'createdAt' => $p->getCreatedAt()->format(DATE_ATOM),
+        ], $this->patterns->findByUserOrdered($user));
+
+        return $this->json($data);
+    }
+
+    #[Route('', name: 'api_patterns_create', methods: ['POST'])]
+    #[IsGranted('ROLE_USER')]
+    public function create(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $payload = json_decode($request->getContent(), true);
+        if (!is_array($payload)) {
+            return $this->json(['error' => 'Invalid JSON'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $pattern = (new Pattern())
+            ->setUser($user)
+            ->setMode((string) ($payload['mode'] ?? 'live'))
+            ->setGeometryStyle((string) ($payload['geometryStyle'] ?? 'classic'))
+            ->setGeometryParams(is_array($payload['geometryParams'] ?? null) ? $payload['geometryParams'] : [])
+            ->setFeatureTimeline(is_array($payload['featureTimeline'] ?? null) ? $payload['featureTimeline'] : [])
+            ->setSvg((string) ($payload['svg'] ?? ''))
+            ->setVoiceProfileHash(isset($payload['voiceProfileHash']) ? (string) $payload['voiceProfileHash'] : null)
+            ->setTitle(isset($payload['title']) ? (string) $payload['title'] : null);
+
+        $this->entityManager->persist($pattern);
+        $this->entityManager->flush();
+
+        return $this->json(['id' => $pattern->getId()], Response::HTTP_CREATED);
+    }
+
+    #[Route('/{id}', name: 'api_patterns_show', methods: ['GET'])]
+    #[IsGranted('ROLE_USER')]
+    public function show(int $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $pattern = $this->patterns->find($id);
+        if (!$pattern instanceof Pattern || $pattern->getUser()->getId() !== $user->getId()) {
+            return $this->json(['error' => 'Not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        return $this->json([
+            'id' => $pattern->getId(),
+            'mode' => $pattern->getMode(),
+            'geometryStyle' => $pattern->getGeometryStyle(),
+            'geometryParams' => $pattern->getGeometryParams(),
+            'featureTimeline' => $pattern->getFeatureTimeline(),
+            'svg' => $pattern->getSvg(),
+            'voiceProfileHash' => $pattern->getVoiceProfileHash(),
+            'title' => $pattern->getTitle(),
+            'createdAt' => $pattern->getCreatedAt()->format(DATE_ATOM),
+        ]);
+    }
+
+    #[Route('/{id}', name: 'api_patterns_delete', methods: ['DELETE'])]
+    #[IsGranted('ROLE_USER')]
+    public function delete(int $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $pattern = $this->patterns->find($id);
+        if (!$pattern instanceof Pattern || $pattern->getUser()->getId() !== $user->getId()) {
+            return $this->json(['error' => 'Not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $this->entityManager->remove($pattern);
+        $this->entityManager->flush();
+
+        return $this->json(null, Response::HTTP_NO_CONTENT);
+    }
+}

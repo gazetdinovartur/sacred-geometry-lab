@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru" x-data="labShell()" :class="theme" x-cloak>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Sacred Geometry Lab{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}Лаборатория наблюдения: звук становится геометрией.{% endblock %}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+    {% block stylesheets %}
+        {% if assets_built() %}
+            <link rel="stylesheet" href="{{ asset('build/main.css') }}">
+        {% endif %}
+    {% endblock %}
+</head>
+<body>
+    {% include 'partials/header.html.twig' %}
+
+    <main class="main">
+        {% block body %}{% endblock %}
+    </main>
+
+    {% include 'partials/footer.html.twig' %}
+
+    {% block javascripts %}
+        {% if assets_built() %}
+            <script type="module" src="{{ asset('build/main.js') }}"></script>
+        {% else %}
+            <div class="assets-warning">
+                <p>Frontend не собран. Запустите <code>npm run build</code> или <code>bin/dev assets</code>.</p>
+            </div>
+        {% endif %}
+    {% endblock %}
+</body>
+</html>

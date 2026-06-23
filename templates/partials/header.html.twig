@@ -1,0 +1,40 @@
+<header class="header">
+    <div class="header__inner">
+        <a href="{{ path('home') }}" class="header__logo">Sacred Geometry Lab</a>
+        <div class="header__actions">
+            <div class="mode-switch" x-show="$store.lab?.onLabPage">
+                <button type="button"
+                        class="mode-switch__btn"
+                        :class="{ 'is-active': $store.lab.mode === 'live' }"
+                        @click="$store.lab.setMode('live')"
+                        title="Мгновенная реакция. В тишине — медленное затухание.">
+                    Момент
+                </button>
+                <button type="button"
+                        class="mode-switch__btn"
+                        :class="{ 'is-active': $store.lab.mode === 'process' }"
+                        @click="$store.lab.setMode('process')"
+                        title="Один контур — штрих за штрихом.">
+                    Процесс
+                </button>
+                <button type="button"
+                        class="mode-switch__btn"
+                        :class="{ 'is-active': $store.lab.mode === 'dialog' }"
+                        @click="$store.lab.setMode('dialog')"
+                        title="Два микрофона — левое и правое полушарие.">
+                    Диалог
+                </button>
+            </div>
+            <button type="button"
+                    class="icon-btn"
+                    @click="toggleTheme()"
+                    :aria-label="theme === 'theme-dark' ? 'Светлая тема' : 'Тёмная тема'">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                          fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+</header>

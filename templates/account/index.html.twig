@@ -1,0 +1,49 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Мои узоры — Sacred Geometry Lab{% endblock %}
+
+{% block body %}
+<article class="page prose" x-data="accountPage()">
+    <div class="account-header">
+        <h1>Мои узоры</h1>
+        <a href="{{ path('account_logout') }}" class="btn btn--ghost btn--sm">Выйти</a>
+    </div>
+
+    <section class="voice-profile-panel">
+        <h2 class="voice-profile-panel__title">Профиль голоса</h2>
+        <p class="voice-profile-panel__text">
+            Калибровка идёт автоматически во время сессии на главной.
+            <span x-text="voiceStatus"></span>
+        </p>
+        <button type="button" class="btn btn--ghost btn--sm" @click="resetVoiceProfile()">Сбросить профиль</button>
+    </section>
+
+    {% if patterns is empty %}
+        <p>Пока нет сохранённых узоров. Создайте мандалу на главной и нажмите «Сохранить».</p>
+        <p><a href="{{ path('home') }}" class="btn btn--primary">На главную</a></p>
+    {% else %}
+        <ul class="pattern-list">
+            {% for pattern in patterns %}
+                <li class="pattern-list__item">
+                    <div class="pattern-list__meta">
+                        <strong>{{ pattern.title ?? 'Узор' }}</strong>
+                        <span>{{ pattern.createdAt|date('d.m.Y H:i') }} · {{ pattern.mode }} · {{ pattern.geometryStyle }}</span>
+                    </div>
+                    <div class="pattern-list__actions">
+                        <button type="button"
+                                class="btn btn--ghost btn--sm"
+                                @click="deletePattern({{ pattern.id }})">
+                            Удалить
+                        </button>
+                    </div>
+                    <div class="pattern-list__preview">{{ pattern.svg|raw }}</div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <section class="account-danger">
+        <button type="button" class="btn btn--ghost btn--sm" @click="deleteAccount()">Удалить аккаунт</button>
+    </section>
+</article>
+{% endblock %}

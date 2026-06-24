@@ -9,16 +9,20 @@ import {
   drawHarmonicRings,
   drawPitchMarker,
   drawProcessOrbit,
+  drawProcessSpectrumLayers,
   drawRhythmStar,
   drawRmsRing,
-  drawSpectrumArcs,
+  drawSpectrumRingMarkers,
   drawTimbreCore,
   drawToneRays,
   drawVoiceTrace,
   downsampleTrail,
 } from './voiceMandalaLayers';
+import { drawDotMandala } from './dotMandalaLayers';
 
 const REF_RADIUS = 200;
+/** Доля холста под радиус R — небольшие поля по краям. */
+const EXPORT_RADIUS_FILL = 0.995;
 
 /**
  * Экспорт: структурированная мандала.
@@ -26,9 +30,10 @@ const REF_RADIUS = 200;
  * Live-экран не трогаем — только PNG/SVG.
  */
 export class MandalaRenderer implements LabRenderer {
-  private style: import('../types').GeometryStyle = 'flower';
+  private style: import('../types').GeometryStyle = 'dots';
   private palette: MandalaPalette = buildMandalaPalette(260);
   private group: paper.Group | null = null;
+  private lastDotStats: import('./dotMandalaMath').DotMandalaStats | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     paper.setup(canvas);
@@ -78,7 +83,12 @@ export class MandalaRenderer implements LabRenderer {
   }
 
   renderSnapshot(snapshot: FeatureSnapshot): void {
-    this.  renderVoiceMandala(
+    if (this.style === 'dots') {
+      this.renderDotMandalaSnapshot(snapshot);
+      return;
+    }
+
+    this.renderVoiceMandala(
       snapshot.params,
       snapshot.features,
       snapshot.pitchTrail ?? [],
@@ -89,6 +99,24 @@ export class MandalaRenderer implements LabRenderer {
 
   renderComposite(snapshots: FeatureSnapshot[]): void {
     if (snapshots.length === 0) {
+      return;
+    }
+
+    if (this.style === 'dots') {
+      const composite: FeatureSnapshot = {
+        ...snapshots[snapshots.length - 1],
+        label: 'Итог',
+        pitchTrail: downsampleTrail(
+          snapshots.flatMap((s) => s.pitchTrail ?? []),
+          120,
+        ),
+        spectrum: averageSpectrum(snapshots),
+        processSnapshots: [...snapshots],
+        sessionStarted: snapshots[0]?.sessionStarted,
+        profileHash: snapshots[0]?.profileHash,
+        voiceMs: snapshots.reduce((sum, s) => sum + (s.voiceMs ?? 0), 0),
+      };
+      this.renderDotMandalaSnapshot(composite);
       return;
     }
 
@@ -118,7 +146,10 @@ export class MandalaRenderer implements LabRenderer {
 
   exportSvg(): string {
     this.flushToCanvas();
-    const svg = paper.project.exportSVG({ asString: true, bounds: 'content' }) as string;
+    const svg = paper.project.exportSVG({
+      asString: true,
+      bounds: paper.view.bounds,
+    }) as string;
     if (!svg || svg.length < 64) {
       throw new Error('SVG export is empty');
     }
@@ -141,18 +172,38 @@ export class MandalaRenderer implements LabRenderer {
     return this.canvas;
   }
 
+  getDotMandalaStats(): import('./dotMandalaMath').DotMandalaStats | null {
+    return this.lastDotStats;
+  }
+
+  private renderDotMandalaSnapshot(snapshot: FeatureSnapshot): void {
+    paper.project.clear();
+    const center = this.layoutCenter();
+    this.palette = buildMandalaPalette(snapshot.params.hue);
+    this.group = new paper.Group();
+
+    const backdrop = new paper.Path.Rectangle(paper.view.bounds);
+    backdrop.fillColor = this.palette.bg;
+    paper.project.activeLayer.addChild(backdrop);
+
+    const R = this.scaledRadius(snapshot.params);
+    const result = drawDotMandala(this.group, center, R, snapshot, this.palette);
+    this.lastDotStats = result.stats;
+
+    paper.project.activeLayer.addChild(this.group);
+    paper.view.update();
+    this.flushToCanvas();
+  }
+
   private layoutCenter(): paper.Point {
     const { width, height } = paper.view.viewSize;
     return new paper.Point(width / 2, height / 2);
   }
 
-  private scaleFactor(): number {
+  /** Экспорт: R фиксирован — на всю картинку, без зависимости от громкости. */
+  private scaledRadius(_params: GeometryParams): number {
     const half = Math.min(paper.view.viewSize.width, paper.view.viewSize.height) / 2;
-    return (half * 0.96) / REF_RADIUS;
-  }
-
-  private scaledRadius(params: GeometryParams): number {
-    return params.radius * this.scaleFactor();
+    return half * EXPORT_RADIUS_FILL;
   }
 
   private renderVoiceMandala(
@@ -175,27 +226,29 @@ export class MandalaRenderer implements LabRenderer {
     const R = this.scaledRadius(params);
     const energy = Math.min(Math.max(params.opacity, 0.3), 1);
 
-    drawHarmonicRings(this.group, center, R, params, stroke);
+    drawHarmonicRings(this.group, center, R, params, features, this.palette);
 
-    if (spectrum?.length) {
+    if (processSnapshots?.length) {
+      drawProcessSpectrumLayers(this.group, center, R, processSnapshots, params, this.palette);
+    } else if (spectrum?.length) {
       const bands = Array.from(downsampleBars(new Float32Array(spectrum), EQ_BAND_COUNT));
-      drawSpectrumArcs(this.group, center, R, bands, energy, stroke);
+      drawSpectrumRingMarkers(this.group, center, R, bands, energy, params, stroke);
     }
 
-    drawToneRays(this.group, center, R, params, stroke);
-    drawRhythmStar(this.group, center, R, params, features, stroke);
-    drawTimbreCore(this.group, center, R, params, stroke);
+    drawToneRays(this.group, center, R, params, features, this.palette);
+    drawRhythmStar(this.group, center, R, params, features, this.palette, spectrum);
+    drawTimbreCore(this.group, center, R, params, features, this.palette);
 
     if (this.style === 'flower' || this.style === 'seed') {
       drawFlowerScaffold(this.group, center, R, params, stroke);
     }
 
     drawVoiceTrace(this.group, center, R, pitchTrail, params, this.palette);
-    if (processSnapshots?.length) {
+    if (processSnapshots?.length && processSnapshots.length >= 2) {
       drawProcessOrbit(this.group, center, R, processSnapshots, params, this.palette);
     }
     drawRmsRing(this.group, center, R, params, stroke);
-    drawPitchMarker(this.group, center, R, features, params, stroke);
+    drawPitchMarker(this.group, center, R, features, params, this.palette);
 
     if (params.breathRing > 0.05) {
       this.group.addChild(new paper.Path.Circle({
@@ -218,6 +271,9 @@ function defaultFeatures(params: GeometryParams): AudioFeatures {
   return {
     rms: params.opacity,
     frequency: 0,
+    pitchConfidence: 0,
+    spectralLevel: params.opacity * 0.4,
+    isActive: params.opacity > 0.05,
     spectralCentroid: params.hue * 8,
     spectralFlux: params.rotationSpeed * 40,
     harmonicCount: params.elementCount,

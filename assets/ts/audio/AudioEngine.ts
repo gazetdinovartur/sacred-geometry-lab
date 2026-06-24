@@ -16,7 +16,7 @@ export class AudioEngine {
     this.context = new AudioContext();
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.65;
+    this.analyser.smoothingTimeConstant = 0.52;
 
     this.source = this.context.createMediaStreamSource(this.stream);
     this.source.connect(this.analyser);
@@ -30,6 +30,10 @@ export class AudioEngine {
 
   getAnalyser(): AnalyserNode | null {
     return this.analyser;
+  }
+
+  getStream(): MediaStream | null {
+    return this.stream;
   }
 
   async suspend(): Promise<void> {

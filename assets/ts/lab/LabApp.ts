@@ -4,10 +4,11 @@ import { EqLabRenderer, downsampleBars, EQ_BAND_COUNT } from '../geometry/EqLabR
 import type { LabRenderer } from '../geometry/LabRenderer';
 import { AudioSessionLoop } from '../modes/AudioSessionLoop';
 import { ProcessMode } from '../modes/ProcessMode';
-import { GeometryPipeline, SILENCE_RMS } from '../geometry/GeometryPipeline';
+import { GeometryPipeline } from '../geometry/GeometryPipeline';
 import type { AudioFrame } from '../modes/AudioSessionLoop';
 import { formatSilenceLabel } from '../geometry/SilenceMapper';
 import { downloadPng, downloadSvg } from '../export/exportFiles';
+import { mandalaPngFilename, mandalaSvgFilename } from '../export/exportNames';
 import { exportMandalaPng, exportMandalaSvg } from '../export/mandalaExport';
 import { validateExportReadiness } from '../export/exportValidation';
 import { VoiceProfile, type NormalizedFeatures } from '../audio/VoiceProfile';
@@ -16,7 +17,10 @@ import { PitchContour } from '../geometry/PitchContour';
 import { motifLabel } from '../geometry/MotifPicker';
 import { symmetryLabel } from '../geometry/SymmetryResolver';
 import { exportSessionFrames } from '../export/exportFrames';
-import type { FeatureSnapshot, GeometryStyle, LabMode, TimelineEntry } from '../types';
+import type { ExportAction, ExportSize, ExportStyle } from '../export/exportOptions';
+import { DEFAULT_EXPORT_SIZE, exportActionLabel } from '../export/exportOptions';
+import type { CinemaSessionBundle, FeatureSnapshot, LabMode, TimelineEntry } from '../types';
+import { SessionCapture } from '../export/SessionCapture';
 
 const WARMUP_MS = 900;
 const STATUS_FLASH_MS = 1800;
@@ -24,7 +28,12 @@ const STATUS_FLASH_MS = 1800;
 type LabStore = {
   onLabPage: boolean;
   mode: LabMode;
-  geometryStyle: GeometryStyle;
+  exportStyle: ExportStyle;
+  exportAction: ExportAction;
+  exportSize: ExportSize;
+  exportActions: { value: ExportAction; label: string }[];
+  processSnapshotCount: number;
+  exportActionButtonLabel: () => string;
   isActive: boolean;
   isPaused: boolean;
   isStarting: boolean;
@@ -44,14 +53,12 @@ type LabStore = {
   activeSnapshot: number | null;
   primaryLabel: () => string;
   setMode: (mode: LabMode) => void;
-  setGeometryStyle: (style: GeometryStyle) => void;
+  setExportStyle: (style: ExportStyle) => void;
+  setExportAction: (action: ExportAction) => void;
   primaryAction: () => Promise<void>;
   pause: () => Promise<void>;
-  stop: () => void;
-  exportSvg: () => void;
-  exportPng: () => void;
-  exportFrames: () => Promise<void>;
-  savePattern: () => Promise<void>;
+  stop: () => Promise<void>;
+  runExportAction: () => Promise<void>;
   selectSnapshot: (index: number) => void;
   showLive: () => void;
   toggleFullscreen: () => Promise<void>;
@@ -74,6 +81,9 @@ export class LabApp {
   private warmUpUntil = 0;
   private statusTimer = 0;
   private lastMotifFlash = 0;
+  private sessionCapture = new SessionCapture();
+  private cinemaBundle: CinemaSessionBundle | null = null;
+  private captureStartedAt = 0;
   private sessionStarted = 0;
   private voiceAccumMs = 0;
   private lastFrameTs = 0;
@@ -83,7 +93,12 @@ export class LabApp {
   private readonly storeRef: LabStore = {
     onLabPage: false,
     mode: 'live',
-    geometryStyle: 'flower',
+    exportStyle: 'dots',
+    exportAction: 'png',
+    exportSize: DEFAULT_EXPORT_SIZE,
+    exportActions: [],
+    processSnapshotCount: 0,
+    exportActionButtonLabel: () => exportActionLabel(this.store.exportAction),
     isActive: false,
     isPaused: false,
     isStarting: false,
@@ -104,14 +119,12 @@ export class LabApp {
 
     primaryLabel: () => this.primaryLabel(),
     setMode: (mode) => this.setMode(mode),
-    setGeometryStyle: (style) => this.setGeometryStyle(style),
+    setExportStyle: (style) => this.setExportStyle(style),
+    setExportAction: (action) => this.setExportAction(action),
     primaryAction: () => this.primaryAction(),
     pause: () => this.pause(),
     stop: () => this.stop(),
-    exportSvg: () => this.exportSvg(),
-    exportPng: () => this.exportPng(),
-    exportFrames: () => this.exportFrames(),
-    savePattern: () => this.savePattern(),
+    runExportAction: () => this.runExportAction(),
     selectSnapshot: (index) => this.selectSnapshot(index),
     showLive: () => this.showLive(),
     toggleFullscreen: () => this.toggleFullscreen(),
@@ -129,7 +142,6 @@ export class LabApp {
     this.store.onLabPage = true;
 
     this.renderer = new EqLabRenderer(canvas);
-    this.renderer.setStyle(this.store.geometryStyle);
     this.renderer.resize();
     this.sessionLoop = new AudioSessionLoop((frame) => this.onAudioFrame(frame));
     this.processMode = new ProcessMode(this.renderer);
@@ -153,6 +165,8 @@ export class LabApp {
     if (this.devMode) {
       this.mountDevPanel();
     }
+
+    this.refreshExportActions();
   }
 
   private primaryLabel(): string {
@@ -204,6 +218,13 @@ export class LabApp {
       const analyser = await this.audio.start();
       this.sessionLoop?.start(analyser);
 
+      this.captureStartedAt = performance.now();
+      this.sessionCapture.prepare(this.captureStartedAt);
+      const stream = this.audio.getStream();
+      if (stream) {
+        this.sessionCapture.startAudio(stream);
+      }
+
       this.store.isActive = true;
       this.store.isPaused = false;
       this.frozenIndex = null;
@@ -234,28 +255,29 @@ export class LabApp {
     if (this.store.isPaused) {
       await this.audio.resume();
       this.sessionLoop?.resume();
+      this.sessionCapture.resume();
       this.store.isPaused = false;
       return;
     }
 
     this.sessionLoop?.pause();
+    this.sessionCapture.pause();
     await this.audio.suspend();
     this.store.isPaused = true;
   }
 
-  private stop(): void {
+  private async stop(): Promise<void> {
     if (!this.store.isActive && !this.store.hasSession) {
       return;
     }
 
     this.calibration.abort();
     this.sessionLoop?.stop();
-    this.audio.stop();
-    this.store.isActive = false;
-    this.store.isPaused = false;
-    this.store.status = '';
 
     if (this.store.mode === 'process' && this.processMode) {
+      if (this.lastSnapshot) {
+        this.processMode.ensureClosingCapture(this.lastSnapshot);
+      }
       this.processMode.finalize(this.pitchContour.clonePoints());
       this.syncTimeline();
       if (this.processMode.getSnapshots().length > 0) {
@@ -265,12 +287,26 @@ export class LabApp {
         this.flashStatus('Итог — экспорт соберёт форму из показателей');
       }
     }
+
+    const snapshots = this.processMode?.getSnapshots() ?? [];
+    this.cinemaBundle = await this.sessionCapture.finalize(snapshots);
+
+    this.audio.stop();
+    this.store.isActive = false;
+    this.store.isPaused = false;
+    this.store.status = '';
+
+    this.normalizeExportAction();
+    this.refreshExportActions();
   }
 
   private resetSession(): void {
     this.calibration.abort();
     this.sessionLoop?.stop();
     this.audio.stop();
+    this.sessionCapture.reset();
+    this.cinemaBundle = null;
+    this.captureStartedAt = 0;
     this.pitchContour.reset();
     this.processMode?.reset();
     this.geometryPipeline.reset();
@@ -293,6 +329,8 @@ export class LabApp {
     this.store.silenceLabel = '—';
     this.store.timeline = [];
     this.store.activeSnapshot = null;
+    this.store.processSnapshotCount = 0;
+    this.refreshExportActions();
     this.store.isCalibrating = false;
     this.store.calibrationProgress = 0;
     this.store.calibrationPrompt = '';
@@ -423,14 +461,14 @@ export class LabApp {
     if (this.voiceProfile.isCalibrating()) {
       this.calibration.pushFeatures(frame.features);
       const norm = this.voiceProfile.normalizeFeatures(frame.features);
-      const levelNorm = frame.features.rms >= SILENCE_RMS ? norm.rms : 0;
+      const levelNorm = frame.features.isActive ? norm.rms : 0;
       this.store.rmsNorm = Math.round(safeNormPct(levelNorm));
       this.feedEqVisual(frame, norm, true);
       return;
     }
 
     const norm = this.voiceProfile.normalizeFeatures(frame.features);
-    const active = frame.features.rms >= SILENCE_RMS;
+    const active = frame.features.isActive;
     const levelNorm = active ? norm.rms : 0;
     if (active) {
       this.voiceAccumMs += frameDelta;
@@ -464,12 +502,12 @@ export class LabApp {
     this.lastSnapshot = snapshot;
     this.store.hasSession = true;
     this.store.frequencyLabel = frame.features.frequency > 0
-      ? `${Math.round(frame.features.frequency)} Hz · ${Math.round(norm.pitch * 100)}%`
+      ? `${Math.round(frame.features.frequency)} Hz${frame.features.pitchConfidence < 0.45 ? ' · текстура' : ''} · ${Math.round(norm.pitch * 100)}%`
       : '—';
     this.store.symmetry = symmetryLabel(params.symmetry);
     this.store.silenceLabel = formatSilenceLabel(frame.features.silenceRatio, frame.features.pauseMs);
 
-    if (performance.now() < this.warmUpUntil && frame.features.rms < SILENCE_RMS && !this.geometryPipeline.hasHeldForm()) {
+    if (performance.now() < this.warmUpUntil && !frame.features.isActive && !this.geometryPipeline.hasHeldForm()) {
       return;
     }
 
@@ -479,6 +517,9 @@ export class LabApp {
 
     this.voiceProfile.observe(frame.features);
     this.updateDevPanel(snapshot, norm);
+    if (!this.voiceProfile.isCalibrating()) {
+      this.sessionCapture.pushSample(snapshot);
+    }
     this.applyRender(snapshot);
   }
 
@@ -512,16 +553,19 @@ export class LabApp {
     }
 
     if (this.renderer instanceof EqLabRenderer) {
-      this.renderer.setSpectrumGain(this.voiceProfile.spectrumGain(liveSnapshot.features.rms));
+      this.renderer.setSpectrumGain(this.voiceProfile.spectrumGain(
+        liveSnapshot.features.rms,
+        liveSnapshot.features.spectralLevel,
+      ));
       this.renderer.setCalibrationState(false, 0, '');
       const levelNorm = liveSnapshot.levelNorm
-        ?? (liveSnapshot.features.rms >= SILENCE_RMS
+        ?? (liveSnapshot.features.isActive
           ? this.voiceProfile.normalizeFeatures(liveSnapshot.features).rms
           : 0);
       this.renderer.setLiveMetrics(
         liveSnapshot.features.frequency,
         levelNorm,
-        liveSnapshot.features.rms >= SILENCE_RMS,
+        liveSnapshot.features.isActive,
       );
     }
 
@@ -534,14 +578,17 @@ export class LabApp {
     }
 
     if (this.sessionLoop && this.renderer.setSpectrum) {
-      this.renderer.setSpectrumGain(this.voiceProfile.spectrumGain(frame.features.rms));
+      this.renderer.setSpectrumGain(this.voiceProfile.spectrumGain(
+        frame.features.rms,
+        frame.features.spectralLevel,
+      ));
       this.renderer.setSpectrum(this.sessionLoop.getSpectrumBars(64));
     }
 
     this.renderer.setLiveMetrics(
       frame.features.frequency,
-      frame.features.rms >= SILENCE_RMS ? norm.rms : 0,
-      frame.features.rms >= SILENCE_RMS,
+      frame.features.isActive ? norm.rms : 0,
+      frame.features.isActive,
     );
 
     if (calibrating) {
@@ -573,6 +620,8 @@ export class LabApp {
     }
 
     this.store.timeline = entries;
+    this.store.processSnapshotCount = this.processMode.getSnapshots().length;
+    this.refreshExportActions();
     requestAnimationFrame(() => this.scrollTimelineToEnd());
   }
 
@@ -593,6 +642,7 @@ export class LabApp {
       if (this.lastSnapshot) {
         this.renderer?.render(this.lastSnapshot.params, this.lastSnapshot.pitchTrail ?? []);
       }
+      this.normalizeExportAction();
       return;
     }
 
@@ -607,15 +657,61 @@ export class LabApp {
     }
   }
 
-  private setGeometryStyle(style: GeometryStyle): void {
-    this.store.geometryStyle = style;
-    this.renderer?.setStyle(style);
-    if (this.frozenIndex !== null) {
-      return;
+  private setExportStyle(style: ExportStyle): void {
+    this.store.exportStyle = style;
+  }
+
+  private setExportAction(action: ExportAction): void {
+    this.store.exportAction = action;
+  }
+
+  private buildExportActions(): { value: ExportAction; label: string }[] {
+    const options: { value: ExportAction; label: string }[] = [
+      { value: 'png', label: exportActionLabel('png') },
+      { value: 'svg', label: exportActionLabel('svg') },
+    ];
+
+    if (this.store.processSnapshotCount > 0) {
+      options.push({ value: 'zip', label: exportActionLabel('zip') });
     }
-    if (this.lastSnapshot) {
-      this.renderer?.render(this.lastSnapshot.params, this.lastSnapshot.pitchTrail ?? []);
+
+    if (this.store.processSnapshotCount >= 2 && LabApp.canExportVideo()) {
+      options.push({ value: 'video', label: exportActionLabel('video') });
     }
+
+    if (this.cinemaBundle && this.cinemaBundle.samples.length >= 12 && LabApp.canExportCinema()) {
+      options.push({ value: 'cinema', label: exportActionLabel('cinema') });
+    }
+
+    options.push({ value: 'save', label: exportActionLabel('save') });
+    return options;
+  }
+
+  private refreshExportActions(): void {
+    this.store.exportActions = this.buildExportActions();
+    this.normalizeExportAction();
+  }
+
+  private normalizeExportAction(): void {
+    if (this.store.exportAction === 'zip' && this.store.processSnapshotCount === 0) {
+      this.store.exportAction = 'png';
+    }
+    if (this.store.exportAction === 'video' && (this.store.processSnapshotCount < 2 || !LabApp.canExportVideo())) {
+      this.store.exportAction = 'png';
+    }
+    if (this.store.exportAction === 'cinema' && (!this.cinemaBundle || !LabApp.canExportCinema())) {
+      this.store.exportAction = 'png';
+    }
+  }
+
+  private static canExportVideo(): boolean {
+    return typeof VideoEncoder !== 'undefined'
+      && typeof VideoFrame !== 'undefined'
+      && typeof createImageBitmap !== 'undefined';
+  }
+
+  private static canExportCinema(): boolean {
+    return LabApp.canExportVideo() && typeof AudioEncoder !== 'undefined';
   }
 
   private showLive(): void {
@@ -674,22 +770,61 @@ export class LabApp {
 
   private getExportSnapshot(): FeatureSnapshot | null {
     if (this.frozenIndex !== null && this.processMode) {
-      return this.processMode.getEntry(this.frozenIndex);
+      const entry = this.processMode.getEntry(this.frozenIndex);
+      return entry ? this.enrichExportSnapshot(entry) : null;
     }
     if (this.store.mode === 'process' && this.processMode?.getComposite()) {
-      return this.processMode.getComposite();
+      return this.enrichExportSnapshot(this.processMode.getComposite()!);
     }
     if (!this.lastSnapshot) {
       return null;
     }
-    return {
+    const processSnapshots = this.processMode?.getSnapshots();
+    return this.enrichExportSnapshot({
       ...this.lastSnapshot,
       pitchTrail: this.pitchContour.clonePoints(),
       voiceMs: this.voiceAccumMs,
+      processSnapshots: processSnapshots && processSnapshots.length > 0
+        ? processSnapshots
+        : undefined,
+    });
+  }
+
+  private enrichExportSnapshot(snapshot: FeatureSnapshot): FeatureSnapshot {
+    return {
+      ...snapshot,
+      pitchTrail: snapshot.pitchTrail ?? this.pitchContour.clonePoints(),
+      voiceMs: snapshot.voiceMs ?? this.voiceAccumMs,
     };
   }
 
-  private exportSvg(): void {
+  private canExportZip(): boolean {
+    return this.store.processSnapshotCount > 0;
+  }
+
+  private async runExportAction(): Promise<void> {
+    this.normalizeExportAction();
+
+    if (this.store.exportAction === 'save') {
+      await this.saveToPlace();
+      return;
+    }
+
+    if (this.store.exportAction === 'zip') {
+      await this.exportSessionZip();
+      return;
+    }
+
+    if (this.store.exportAction === 'video') {
+      await this.exportSessionVideo();
+      return;
+    }
+
+    if (this.store.exportAction === 'cinema') {
+      await this.exportSessionCinema();
+      return;
+    }
+
     const snap = this.getExportSnapshot();
     if (!snap) {
       this.flashStatus('Нечего экспортировать — сначала запишите сессию');
@@ -700,66 +835,166 @@ export class LabApp {
       this.flashStatus(readiness.message ?? 'Мало данных для экспорта');
       return;
     }
+
+    const style = this.store.exportStyle;
+
     try {
-      downloadSvg(exportMandalaSvg(snap, this.store.geometryStyle), 'sgl-mandala.svg');
+      const size = this.store.exportSize;
+      if (this.store.exportAction === 'svg') {
+        downloadSvg(exportMandalaSvg(snap, style, size), mandalaSvgFilename());
+      } else {
+        downloadPng(exportMandalaPng(snap, style, size), mandalaPngFilename());
+      }
     } catch {
-      this.flashStatus('Не удалось собрать SVG — попробуйте ещё раз');
+      this.flashStatus('Не удалось собрать мандалу — попробуйте другой стиль');
     }
   }
 
-  private exportPng(): void {
-    const snap = this.getExportSnapshot();
-    if (!snap) {
-      this.flashStatus('Нечего экспортировать — сначала запишите сессию');
-      return;
-    }
-    const readiness = validateExportReadiness(snap);
-    if (!readiness.ok) {
-      this.flashStatus(readiness.message ?? 'Мало данных для экспорта');
-      return;
-    }
-    try {
-      downloadPng(exportMandalaPng(snap, this.store.geometryStyle), 'sgl-mandala.png');
-    } catch {
-      this.flashStatus('Не удалось собрать PNG — попробуйте ещё раз');
-    }
-  }
-
-  private async exportFrames(): Promise<void> {
+  private async exportSessionZip(): Promise<void> {
     if (!this.processMode) {
+      return;
+    }
+
+    if (this.store.exportAction === 'zip' && !this.canExportZip()) {
+      this.flashStatus('ZIP — после Process-сессии с этапами');
       return;
     }
 
     const snapshots = this.processMode.getSnapshots();
     if (snapshots.length === 0) {
+      this.flashStatus('ZIP доступен после Process-сессии с этапами');
       return;
     }
 
-    this.store.status = 'Собираем экспорт…';
+    this.store.status = 'Собираем архив…';
     try {
-      await exportSessionFrames(
+      const zipName = await exportSessionFrames(
         snapshots,
-        this.store.geometryStyle,
+        this.store.exportStyle,
         this.voiceProfile.getMetrics(),
+        this.store.exportSize,
       );
-      this.flashStatus('Архив sgl-session.zip скачан');
+      if (zipName) {
+        this.flashStatus(`Скачан ${zipName}`);
+      }
     } catch {
       this.flashStatus('Не удалось собрать архив — попробуйте ещё раз');
     } finally {
-      if (this.store.status === 'Собираем экспорт…') {
+      if (this.store.status === 'Собираем архив…') {
         this.store.status = '';
       }
     }
   }
 
-  private async savePattern(): Promise<void> {
+  private async exportSessionVideo(): Promise<void> {
+    if (!this.processMode) {
+      return;
+    }
+
+    const snapshots = this.processMode.getSnapshots();
+    if (snapshots.length < 2) {
+      this.flashStatus('Видео — после Process-сессии минимум с 2 этапами');
+      return;
+    }
+
+    if (!LabApp.canExportVideo()) {
+      this.flashStatus('Видео недоступно в этом браузере — используйте Chrome или Firefox');
+      return;
+    }
+
+    this.store.status = 'Готовим видео… 0%';
+    try {
+      const { exportSessionVideo } = await import('../export/exportSessionVideo');
+      const videoName = await exportSessionVideo(
+        snapshots,
+        this.store.exportStyle,
+        this.store.exportSize,
+        (state) => {
+          const pct = Math.round(state.progress * 100);
+          if (state.phase === 'done') {
+            this.store.status = '';
+            return;
+          }
+          this.store.status = state.phase === 'encode'
+            ? `Кодируем видео… ${pct}%`
+            : `Рендер кадров… ${state.frame}/${state.totalFrames} (${pct}%)`;
+        },
+      );
+      if (videoName) {
+        this.flashStatus(`Скачан ${videoName}`);
+      }
+    } catch {
+      this.flashStatus('Не удалось собрать видео — попробуйте меньший размер');
+    } finally {
+      if (this.store.status.startsWith('Готовим видео') || this.store.status.startsWith('Рендер') || this.store.status.startsWith('Кодируем')) {
+        this.store.status = '';
+      }
+    }
+  }
+
+  private async exportSessionCinema(): Promise<void> {
+    if (!this.cinemaBundle) {
+      this.flashStatus('Кино — после сессии со звуком (Chrome / Firefox)');
+      return;
+    }
+
+    if (!LabApp.canExportCinema()) {
+      this.flashStatus('Кино недоступно в этом браузере');
+      return;
+    }
+
+    this.store.status = 'Готовим кино… 0%';
+    try {
+      const { exportSessionCinemaVideo } = await import('../export/exportSessionCinemaVideo');
+      const name = await exportSessionCinemaVideo(
+        this.cinemaBundle,
+        this.store.exportStyle,
+        this.store.exportSize,
+        (state) => {
+          const pct = Math.round(state.progress * 100);
+          if (state.phase === 'done') {
+            this.store.status = '';
+            return;
+          }
+          if (state.phase === 'encode') {
+            this.store.status = `Синхронизируем голос… ${pct}%`;
+            return;
+          }
+          this.store.status = `Кино: кадры ${state.frame}/${state.totalFrames} (${pct}%)`;
+        },
+      );
+      if (name) {
+        this.flashStatus(`Скачан ${name}`);
+      }
+    } catch {
+      this.flashStatus('Не удалось собрать кино — попробуйте 1600 px');
+    } finally {
+      if (this.store.status.startsWith('Готовим кино') || this.store.status.startsWith('Кино:') || this.store.status.startsWith('Синхронизируем')) {
+        this.store.status = '';
+      }
+    }
+  }
+
+  private async saveToPlace(): Promise<void> {
     if (!this.lastSnapshot) {
+      return;
+    }
+
+    const snap = this.getExportSnapshot();
+    if (!snap) {
+      this.flashStatus('Нечего сохранять — сначала запишите сессию');
+      return;
+    }
+
+    const readiness = validateExportReadiness(snap);
+    if (!readiness.ok) {
+      this.flashStatus(readiness.message ?? 'Мало данных для сохранения');
       return;
     }
 
     const payload = {
       mode: this.store.mode,
-      geometryStyle: this.store.geometryStyle,
+      geometryStyle: this.store.exportStyle,
       geometryParams: this.lastSnapshot.params,
       featureTimeline: this.processMode?.getSnapshots().map((s) => ({
         timestamp: s.timestamp,
@@ -768,7 +1003,7 @@ export class LabApp {
       })) ?? [],
       svg: (() => {
         const snap = this.getExportSnapshot();
-        return snap ? exportMandalaSvg(snap, this.store.geometryStyle) : '';
+        return snap ? exportMandalaSvg(snap, this.store.exportStyle, this.store.exportSize) : '';
       })(),
       voiceProfileHash: this.voiceProfile.hash(),
     };
@@ -786,13 +1021,13 @@ export class LabApp {
     }
 
     if (!response.ok) {
-      this.store.status = 'Не удалось сохранить узор';
+      this.store.status = 'Не удалось положить в своё место';
       return;
     }
 
-    this.store.status = 'Узор сохранён';
+    this.store.status = 'Лежит в своём месте';
     window.setTimeout(() => {
-      if (this.store.status === 'Узор сохранён') {
+      if (this.store.status === 'Лежит в своём месте') {
         this.store.status = '';
       }
     }, 2500);

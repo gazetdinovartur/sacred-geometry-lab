@@ -12,6 +12,13 @@
   gap: 1rem;
 }
 
+.account-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .pattern-list {
   list-style: none;
   padding: 0;
@@ -28,28 +35,87 @@
   background: var(--bg-elevated);
 }
 
+.pattern-list__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
 .pattern-list__meta {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.75rem;
+  gap: 0.35rem;
   font-size: 0.85rem;
   color: var(--text-muted);
+  min-width: min(100%, 14rem);
+}
+
+.pattern-list__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.pattern-list__title-row strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.pattern-list__rename {
+  padding-inline: 0.55rem;
+}
+
+.pattern-list__rename-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.pattern-list__rename-input {
+  width: min(100%, 18rem);
+  padding: 0.45rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.pattern-list__rename-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pattern-list__rename-error {
+  margin: 0;
+  color: #b54a4a;
+  font-size: 0.82rem;
 }
 
 .pattern-list__preview {
-  max-height: 120px;
+  max-height: 160px;
   overflow: hidden;
-  opacity: 0.85;
+  opacity: 0.9;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--canvas-bg) 88%, transparent);
 }
 
 .pattern-list__preview svg {
   width: 100%;
   height: auto;
+  display: block;
 }
 
 .pattern-list__actions {
-  margin-bottom: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .voice-profile-panel {

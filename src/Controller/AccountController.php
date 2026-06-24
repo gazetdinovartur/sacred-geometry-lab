@@ -19,8 +19,17 @@ final class AccountController extends AbstractController
             return $this->render('account/login.html.twig');
         }
 
+        $rows = $patterns->findByUserOrdered($user);
+
         return $this->render('account/index.html.twig', [
-            'patterns' => $patterns->findByUserOrdered($user),
+            'patterns_data' => array_map(static fn (\App\Entity\Pattern $p): array => [
+                'id' => $p->getId(),
+                'title' => $p->getTitle() ?? 'Узор',
+                'mode' => $p->getMode(),
+                'geometryStyle' => $p->getGeometryStyle(),
+                'createdAt' => $p->getCreatedAt()->format('d.m.Y H:i'),
+                'svg' => $p->getSvg(),
+            ], $rows),
         ]);
     }
 

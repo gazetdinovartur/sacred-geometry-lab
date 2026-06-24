@@ -116,7 +116,7 @@
             </div>
             <p class="process-panel__hint"
                x-show="$store.lab.isActive && !$store.lab.timeline.length">
-                Говорите — этапы фиксируются реже (~12 с). «Стоп» — итог.
+                Говорите и молчите — этап каждые ~12 с, пока не «Стоп».
             </p>
             <p class="process-panel__hint"
                x-show="!$store.lab.isActive && $store.lab.activeSnapshot === -1">
@@ -172,14 +172,40 @@
                     x-show="!$store.lab.isCalibrating">
                 <span x-text="$store.lab.isActive ? 'Перекалибровать' : 'Калибровка'"></span>
             </button>
-            <div class="export-group" x-show="$store.lab.hasSession && !$store.lab.isActive">
-                <button type="button" class="btn btn--ghost" @click="$store.lab.exportSvg()">Мандала SVG</button>
-                <button type="button" class="btn btn--ghost" @click="$store.lab.exportPng()">Мандала PNG</button>
+            <div class="export-form"
+                 x-show="$store.lab.hasSession && !$store.lab.isActive"
+                 x-cloak>
+                <label class="export-field">
+                    <span class="export-field__label">Размер</span>
+                    <select class="export-control"
+                            x-model.number="$store.lab.exportSize">
+                        <option :value="800">800×800</option>
+                        <option :value="1600">1600×1600</option>
+                        <option :value="3200">3200×3200</option>
+                    </select>
+                </label>
+                <label class="export-field">
+                    <span class="export-field__label">Стиль</span>
+                    <select class="export-control"
+                            x-model="$store.lab.exportStyle">
+                        <option value="dots">Точечная</option>
+                        <option value="layers">Слои</option>
+                    </select>
+                </label>
+                <label class="export-field">
+                    <span class="export-field__label">Действие</span>
+                    <select class="export-control"
+                            x-model="$store.lab.exportAction"
+                            :key="`export-actions-${$store.lab.processSnapshotCount}`">
+                        <template x-for="opt in $store.lab.exportActions" :key="opt.value">
+                            <option :value="opt.value" x-text="opt.label"></option>
+                        </template>
+                    </select>
+                </label>
                 <button type="button"
-                        class="btn btn--ghost"
-                        x-show="$store.lab.mode === 'process' && $store.lab.timeline.length"
-                        @click="$store.lab.exportFrames()">Сессия ZIP</button>
-                <button type="button" class="btn btn--ghost" @click="$store.lab.savePattern()">Сохранить</button>
+                        class="btn btn--ghost export-control"
+                        @click="$store.lab.runExportAction()"
+                        x-text="$store.lab.exportActionButtonLabel()"></button>
             </div>
         </div>
     </div>

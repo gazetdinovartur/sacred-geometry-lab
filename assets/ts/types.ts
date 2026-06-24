@@ -1,6 +1,12 @@
 export interface AudioFeatures {
   rms: number;
   frequency: number;
+  /** 0…1 — уверенность в f₀ (автокорреляция); ниже при спектральной оценке. */
+  pitchConfidence: number;
+  /** Средняя энергия FFT, 0…1 — для шумов и согласных. */
+  spectralLevel: number;
+  /** Есть ли слышимый сигнал (RMS или спектр). */
+  isActive: boolean;
   spectralCentroid: number;
   spectralFlux: number;
   harmonicCount: number;
@@ -50,6 +56,25 @@ export type PitchPoint = {
   variant: number;
 };
 
+export type SessionTimelineSample = {
+  /** мс от начала захвата (performance.now). */
+  timeMs: number;
+  features: AudioFeatures;
+  params: GeometryParams;
+  spectrum?: number[];
+  pitchTrail?: PitchPoint[];
+  levelNorm?: number;
+};
+
+export type CinemaSessionBundle = {
+  audioBlob: Blob;
+  audioDurationMs: number;
+  samples: SessionTimelineSample[];
+  processSnapshots: FeatureSnapshot[];
+  captureStartedAt: number;
+  profileHash?: string;
+};
+
 export interface FeatureSnapshot {
   timestamp: number;
   features: AudioFeatures;
@@ -76,6 +101,7 @@ export type DialogFrame = {
 };
 
 export type GeometryStyle =
+  | 'dots'
   | 'classic'
   | 'flower'
   | 'seed'

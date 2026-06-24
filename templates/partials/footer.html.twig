@@ -1,15 +1,43 @@
 <footer class="footer">
-    <nav class="footer__nav" aria-label="Подвал">
-        <a href="{{ path('about') }}">О проекте</a>
-        <span class="footer__sep" aria-hidden="true">·</span>
-        <a href="{{ path('ethics') }}">Этика</a>
-        <span class="footer__sep" aria-hidden="true">·</span>
-        <a href="{{ path('how') }}">Как это работает</a>
-        <span class="footer__sep" aria-hidden="true">·</span>
-        <a href="{{ path('account') }}">Своё место</a>
-    </nav>
-    <p class="footer__credits">
-        <a href="https://arturlun.ru" target="_blank" rel="noopener noreferrer">Артур Лун</a>
-        <span class="footer__credits-role">автор проекта</span>
-    </p>
+    <div class="footer__top">
+        <div class="footer__sigil" aria-hidden="true">
+            <span class="footer__sigil-icon footer__sigil-icon--sun">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="5.5" fill="currentColor" opacity="0.88"/>
+                    <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1" opacity="0.38"/>
+                </svg>
+            </span>
+            <span class="footer__sigil-icon footer__sigil-icon--moon">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1" opacity="0.38"/>
+                    <mask id="sglFooterMoonMask" maskUnits="userSpaceOnUse">
+                        <rect width="24" height="24" fill="white"/>
+                        <circle cx="8.65" cy="12" r="5.15" fill="black"/>
+                    </mask>
+                    <circle cx="12" cy="12" r="5.5" fill="currentColor" opacity="0.88" mask="url(#sglFooterMoonMask)"/>
+                </svg>
+            </span>
+        </div>
+
+        <p class="footer__credits">
+            <span class="footer__credits-name-slot">
+                <a href="https://arturlun.ru" target="_blank" rel="noopener noreferrer" class="footer__credits-name footer__credits-name--sun">Артур Газетдинов</a>
+                <a href="https://arturlun.ru" target="_blank" rel="noopener noreferrer" class="footer__credits-name footer__credits-name--moon">Артур Лун</a>
+            </span>
+            <span class="footer__credits-role">автор проекта</span>
+        </p>
+    </div>
+
+    <div class="footer__rule" aria-hidden="true"></div>
+
+    <div class="footer__nav-wrap">
+        <nav class="footer__nav" aria-label="Подвал">
+            <ul class="footer__nav-list">
+                <li><a href="{{ path('about') }}">О проекте</a></li>
+                <li><a href="{{ path('ethics') }}">Этика</a></li>
+                <li><a href="{{ path('how') }}">Как это работает</a></li>
+                <li><a href="{{ path('account') }}">Своё место</a></li>
+            </ul>
+        </nav>
+    </div>
 </footer>

@@ -1,8 +1,8 @@
 import paper from 'paper';
 import type { AudioFeatures, FeatureSnapshot, GeometryParams, PitchPoint, VoiceMotifKind } from '../types';
 import type { MandalaPalette } from './mandalaPalette';
-import { paletteStroke } from './mandalaPalette';
-import { pitchShimmerJitter } from './sessionVariety';
+import { paletteStroke, chakraHueFromT, chakraHueFromHz, chakraPaperColor, ringBandColor, type MandalaPalette } from './mandalaPalette';
+import { u } from './renderUnits';
 
 export const EXPORT_BANDS = 8;
 
@@ -49,27 +49,39 @@ export function drawRmsRing(
     center,
     radius: R,
     strokeColor: stroke(0.55 + params.opacity * 0.38),
-    strokeWidth: Math.max(0.95 + params.opacity * 0.55, 1.05),
+    strokeWidth: u(R, Math.max(0.95 + params.opacity * 0.55, 1.05)),
     fillColor: null,
   }));
 }
 
-/** Гармоники → вложенные кольца (число уровней = elementCount). */
+/** Гармоники → вложенные кольца с чакровым оттенком по полосе. */
 export function drawHarmonicRings(
   group: paper.Group,
   center: paper.Point,
   R: number,
   params: GeometryParams,
-  stroke: StrokeFn,
+  features: AudioFeatures,
+  palette: MandalaPalette,
 ): void {
-  const levels = Math.min(Math.max(params.elementCount, 2), 6);
+  const levels = Math.min(Math.max(params.elementCount, 2), 7);
   for (let ring = 1; ring <= levels; ring += 1) {
+    const bandT = (ring - 1) / Math.max(levels - 1, 1);
+    const color = ringBandColor(
+      palette,
+      ring - 1,
+      levels,
+      bandT,
+      features.spectralCentroid,
+      ring - 1,
+      levels,
+      params.opacity,
+    );
     group.addChild(new paper.Path.Circle({
       center,
-      radius: R * (0.22 + ring * 0.11),
-      strokeColor: stroke(0.28 + params.opacity * 0.18),
-      strokeWidth: 0.82,
-      dashArray: ring % 2 === 0 ? [3, 6] : undefined,
+      radius: R * (0.2 + ring * 0.1),
+      strokeColor: paletteStroke(color, 0.32 + params.opacity * 0.22),
+      strokeWidth: u(R, 0.72 + features.harmonicCount * 0.06),
+      dashArray: ring % 2 === 0 ? [u(R, 2.5), u(R, 5.5)] : undefined,
       fillColor: null,
     }));
   }
@@ -83,79 +95,114 @@ function normalizeBandLevels(bands: number[]): number[] {
   });
 }
 
-/** Спектр → 8 дуг (per-band peak + gamma). */
-export function drawSpectrumArcs(
+/** Спектр → маркеры на общем кольце (без «висящих» дуг). */
+export function drawSpectrumRingMarkers(
   group: paper.Group,
   center: paper.Point,
   R: number,
   bands: number[],
   energy: number,
+  params: GeometryParams,
   stroke: StrokeFn,
 ): void {
-  const inner = R * 0.5;
-  const span = (Math.PI * 2) / EXPORT_BANDS;
-  const gap = span * 0.12;
-  const maxDepth = R * 0.28 * energy;
+  const ringR = R * 0.68;
   const levels = normalizeBandLevels(bands.slice(0, EXPORT_BANDS));
+  const base = params.pitchAngle - Math.PI / 2;
+
+  group.addChild(new paper.Path.Circle({
+    center,
+    radius: ringR,
+    strokeColor: stroke(0.2 + energy * 0.14),
+    strokeWidth: u(R, 0.62),
+    fillColor: null,
+  }));
 
   for (let i = 0; i < EXPORT_BANDS; i += 1) {
     const v = levels[i] ?? 0;
-    const depth = inner + maxDepth * v;
-    const a0 = -Math.PI / 2 + i * span + gap / 2;
-    const a1 = a0 + span - gap;
-    const arc = new paper.Path.Arc({
-      from: pointOn(center, a0, inner),
-      through: pointOn(center, (a0 + a1) / 2, depth),
-      to: pointOn(center, a1, inner),
-    });
-    arc.strokeColor = stroke(0.28 + v * energy * 0.52);
-    arc.strokeWidth = 0.75 + v * 0.35;
-    arc.fillColor = null;
-    group.addChild(arc);
+    const angle = base + (Math.PI * 2 * i) / EXPORT_BANDS;
+    const pt = pointOn(center, angle, ringR);
+    const chakra = chakraPaperColor(chakraHueFromT(i / (EXPORT_BANDS - 1)), 0.58 + v * 0.28, 0.76 + v * 0.14);
+
+    group.addChild(new paper.Path.Circle({
+      center: pt,
+      radius: u(R, 1.1 + v * 2.2),
+      fillColor: paletteStroke(chakra, 0.38 + v * energy * 0.48),
+      strokeColor: paletteStroke(chakra, 0.22 + v * 0.24),
+      strokeWidth: u(R, 0.35),
+    }));
+
+    if (v > 0.2) {
+      const tickIn = u(R, 2 + v * 10);
+      group.addChild(new paper.Path.Line({
+        from: pt,
+        to: pointOn(center, angle, ringR - tickIn),
+        strokeColor: stroke(0.18 + v * 0.32),
+        strokeWidth: u(R, 0.5 + v * 0.25),
+        strokeCap: 'round',
+      }));
+    }
   }
 }
 
-/** Тон → число лучей и их наклон. */
+/** Тон → лучи с чакровой шкалой по углу. */
 export function drawToneRays(
   group: paper.Group,
   center: paper.Point,
   R: number,
   params: GeometryParams,
-  stroke: StrokeFn,
+  features: AudioFeatures,
+  palette: MandalaPalette,
 ): void {
-  const rays = Math.max(params.rays, 3);
+  const rays = Math.max(params.symmetry, params.rays, 3);
   for (let i = 0; i < rays; i += 1) {
+    const bandT = i / Math.max(rays - 1, 1);
+    const color = ringBandColor(
+      palette,
+      i % EXPORT_BANDS,
+      EXPORT_BANDS,
+      bandT * 0.6,
+      features.spectralCentroid,
+      i,
+      rays,
+      params.opacity,
+    );
     const angle = (Math.PI * 2 * i) / rays + params.pitchAngle;
     const dir = new paper.Point(Math.cos(angle), Math.sin(angle));
+    const inner = R * (0.12 + params.opacity * 0.04);
     group.addChild(new paper.Path.Line({
-      from: center.add(dir.multiply(R * 0.14)),
+      from: center.add(dir.multiply(inner)),
       to: center.add(dir.multiply(R * 0.94)),
-      strokeColor: stroke(0.38 + params.opacity * 0.28),
-      strokeWidth: 0.85,
+      strokeColor: paletteStroke(color, 0.38 + params.opacity * 0.32),
+      strokeWidth: u(R, 0.75 + bandT * 0.35),
       strokeCap: 'round',
     }));
   }
 }
 
-/** Ритм → звезда N-лучей с микро-jitter от f₀/flux. */
+/** Ритм → звезда; вершины от спектра, цвет от центроида. */
 export function drawRhythmStar(
   group: paper.Group,
   center: paper.Point,
   R: number,
   params: GeometryParams,
   features: AudioFeatures,
-  stroke: StrokeFn,
+  palette: MandalaPalette,
+  spectrum?: number[],
 ): void {
   const n = Math.max(params.symmetry, 5);
-  const outer = R * 0.58;
-  const inner = outer * 0.42;
-  const jitter = pitchShimmerJitter(features);
+  const centroidNorm = Math.min(features.spectralCentroid / 4500, 1);
+  const outer = R * (0.46 + centroidNorm * 0.16);
+  const inner = outer * (0.36 + Math.min(features.harmonicCount, 6) * 0.035);
+  const bands = spectrum?.length
+    ? normalizeBandLevels(spectrum.slice(0, EXPORT_BANDS))
+    : null;
   const star = new paper.Path();
 
   for (let i = 0; i <= n * 2; i += 1) {
     const angle = (Math.PI * i) / n + params.pitchAngle - Math.PI / 2;
-    const wobble = (i % 2 === 0 ? 1 : -1) * jitter * R * 18;
-    const r = (i % 2 === 0 ? outer : inner) + wobble;
+    const bandV = bands ? (bands[Math.floor((i / (n * 2)) * EXPORT_BANDS) % EXPORT_BANDS] ?? 0.4) : 0.5;
+    const rMod = bands ? 0.82 + bandV * 0.36 : 1;
+    const r = (i % 2 === 0 ? outer : inner) * rMod;
     const pt = pointOn(center, angle, r);
     if (i === 0) {
       star.moveTo(pt);
@@ -165,22 +212,38 @@ export function drawRhythmStar(
   }
 
   star.closed = true;
-  star.strokeColor = stroke(0.48 + params.opacity * 0.3);
-  star.strokeWidth = 0.9;
-  star.fillColor = null;
+  const starColor = chakraPaperColor(
+    chakraHueFromHz(features.spectralCentroid, 0.45),
+    0.52,
+    0.76,
+  );
+  star.strokeColor = paletteStroke(starColor, 0.5 + params.opacity * 0.32);
+  star.strokeWidth = u(R, 0.85 + features.harmonicCount * 0.04);
+  star.fillColor = paletteStroke(starColor, 0.06 + params.opacity * 0.08);
   group.addChild(star);
 }
 
-/** Тембр (centroid) → малый многоугольник в центре. */
+/** Тембр → ядро bindu по центроиду. */
 export function drawTimbreCore(
   group: paper.Group,
   center: paper.Point,
   R: number,
   params: GeometryParams,
-  stroke: StrokeFn,
+  features: AudioFeatures,
+  palette: MandalaPalette,
 ): void {
   const sides = 3 + Math.min(Math.round(params.lineWidth), 5);
-  const r = R * 0.14;
+  const r = R * (0.11 + params.opacity * 0.05);
+  const coreColor = ringBandColor(
+    palette,
+    3,
+    7,
+    0.45,
+    features.spectralCentroid,
+    0,
+    1,
+    features.rms * 8 + 0.35,
+  );
   const poly = new paper.Path();
 
   for (let i = 0; i <= sides; i += 1) {
@@ -194,13 +257,13 @@ export function drawTimbreCore(
   }
 
   poly.closed = true;
-  poly.strokeColor = stroke(0.4 + params.opacity * 0.22);
-  poly.strokeWidth = 0.78;
-  poly.fillColor = null;
+  poly.strokeColor = paletteStroke(coreColor, 0.55 + params.opacity * 0.25);
+  poly.strokeWidth = u(R, 0.72);
+  poly.fillColor = paletteStroke(coreColor, 0.12 + params.opacity * 0.1);
   group.addChild(poly);
 }
 
-/** Цветок жизни — каркас (стиль flower). */
+/** Цветок — N лепестков на лучах симметрии, привязан к центру. */
 export function drawFlowerScaffold(
   group: paper.Group,
   center: paper.Point,
@@ -208,25 +271,106 @@ export function drawFlowerScaffold(
   params: GeometryParams,
   stroke: StrokeFn,
 ): void {
-  const petalR = R * 0.11;
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI / 3) * i;
-    const c = pointOn(center, angle, petalR);
-    group.addChild(new paper.Path.Circle({
-      center: c,
-      radius: petalR,
-      strokeColor: stroke(0.42 + params.opacity * 0.2),
-      strokeWidth: 0.82,
-      fillColor: null,
-    }));
-  }
+  const n = Math.max(6, params.symmetry);
+  const petalR = R * 0.09;
+  const orbitR = petalR * 1.12;
+  const base = params.pitchAngle - Math.PI / 2;
+
   group.addChild(new paper.Path.Circle({
     center,
     radius: petalR,
-    strokeColor: stroke(0.5 + params.opacity * 0.22),
-    strokeWidth: 0.85,
+    strokeColor: stroke(0.48 + params.opacity * 0.22),
+    strokeWidth: u(R, 0.82),
     fillColor: null,
   }));
+
+  for (let i = 0; i < n; i += 1) {
+    const angle = base + (Math.PI * 2 * i) / n;
+    const c = pointOn(center, angle, orbitR);
+    group.addChild(new paper.Path.Circle({
+      center: c,
+      radius: petalR,
+      strokeColor: stroke(0.4 + params.opacity * 0.2),
+      strokeWidth: u(R, 0.78),
+      fillColor: null,
+    }));
+    group.addChild(new paper.Path.Line({
+      from: center,
+      to: c,
+      strokeColor: stroke(0.16 + params.opacity * 0.12),
+      strokeWidth: u(R, 0.42),
+    }));
+  }
+}
+
+/** Process — каждый этап = спектральное кольцо (чакры, реальный EQ этапа). */
+export function drawProcessSpectrumLayers(
+  group: paper.Group,
+  center: paper.Point,
+  R: number,
+  snapshots: FeatureSnapshot[],
+  params: GeometryParams,
+  palette: MandalaPalette,
+): void {
+  if (snapshots.length === 0) {
+    return;
+  }
+
+  const base = params.pitchAngle - Math.PI / 2;
+
+  snapshots.forEach((snap, stageIndex) => {
+    const depth = snapshots.length <= 1 ? 0.5 : stageIndex / (snapshots.length - 1);
+    const ringR = R * (0.34 + depth * 0.56);
+    const rawBands = snap.spectrum?.length
+      ? snap.spectrum.slice(0, EXPORT_BANDS)
+      : new Array(EXPORT_BANDS).fill(0.35);
+    const levels = normalizeBandLevels(rawBands);
+    const energy = Math.min(Math.max(snap.params.opacity, 0.35), 1);
+    const centroid = snap.features.spectralCentroid;
+    const ringHue = chakraPaperColor(chakraHueFromHz(centroid, depth), 0.38, 0.68);
+
+    group.addChild(new paper.Path.Circle({
+      center,
+      radius: ringR,
+      strokeColor: paletteStroke(ringHue, 0.2 + energy * 0.14),
+      strokeWidth: u(R, 0.48 + energy * 0.18),
+      fillColor: null,
+    }));
+
+    for (let i = 0; i < EXPORT_BANDS; i += 1) {
+      const v = levels[i] ?? 0;
+      const angle = base + (Math.PI * 2 * i) / EXPORT_BANDS;
+      const pt = pointOn(center, angle, ringR);
+      const color = ringBandColor(
+        palette,
+        i,
+        EXPORT_BANDS,
+        depth,
+        centroid,
+        stageIndex,
+        snapshots.length,
+        v,
+      );
+
+      group.addChild(new paper.Path.Circle({
+        center: pt,
+        radius: u(R, 1.0 + v * 2.5),
+        fillColor: paletteStroke(color, 0.34 + v * energy * 0.52),
+        strokeColor: paletteStroke(color, 0.18 + v * 0.3),
+        strokeWidth: u(R, 0.32),
+      }));
+
+      if (v > 0.12) {
+        group.addChild(new paper.Path.Line({
+          from: pt,
+          to: pointOn(center, angle, ringR - u(R, 2 + v * 9)),
+          strokeColor: paletteStroke(color, 0.14 + v * 0.38),
+          strokeWidth: u(R, 0.42 + v * 0.28),
+          strokeCap: 'round',
+        }));
+      }
+    }
+  });
 }
 
 /** Process — слепки как узлы на второй орбите. */
@@ -247,8 +391,8 @@ export function drawProcessOrbit(
     center,
     radius: orbitR,
     strokeColor: paletteStroke(palette.secondary, 0.28),
-    strokeWidth: 0.65,
-    dashArray: [2, 8],
+    strokeWidth: u(R, 0.65),
+    dashArray: [u(R, 2), u(R, 8)],
     fillColor: null,
   });
   group.addChild(orbit);
@@ -257,17 +401,27 @@ export function drawProcessOrbit(
     const t = snapshots.length === 1 ? 0 : index / snapshots.length;
     const angle = -Math.PI / 2 + t * Math.PI * 2 + params.pitchAngle * 0.12;
     const pt = pointOn(center, angle, orbitR);
+    const nodeColor = ringBandColor(
+      palette,
+      index % EXPORT_BANDS,
+      EXPORT_BANDS,
+      t,
+      snap.features.spectralCentroid,
+      index,
+      snapshots.length,
+      snap.params.opacity,
+    );
     group.addChild(new paper.Path.Circle({
       center: pt,
-      radius: 2.2 + snap.params.opacity * 1.4,
-      fillColor: paletteStroke(palette.primary, 0.55 + snap.params.opacity * 0.25),
-      strokeColor: paletteStroke(palette.secondary, 0.4),
-      strokeWidth: 0.5,
+      radius: u(R, 2.2 + snap.params.opacity * 1.4),
+      fillColor: paletteStroke(nodeColor, 0.58 + snap.params.opacity * 0.28),
+      strokeColor: paletteStroke(nodeColor, 0.42),
+      strokeWidth: u(R, 0.5),
     }));
   });
 }
 
-/** Контур голоса — сегменты с толщиной/штрихом от VoiceMotifKind. */
+/** Контур голоса — в первом секторе симметрии, затем N-кратно. */
 export function drawVoiceTrace(
   group: paper.Group,
   center: paper.Point,
@@ -280,80 +434,119 @@ export function drawVoiceTrace(
     return;
   }
 
+  const N = Math.max(3, params.symmetry);
+  const sector = (Math.PI * 2) / N;
+  const base = params.pitchAngle - Math.PI / 2;
   const trackR = R * 0.62;
-  const sampled = downsampleTrail(segments, 96);
+  const sampled = downsampleTrail(segments, 64);
 
-  for (let i = 1; i < sampled.length; i += 1) {
-    const prev = sampled[i - 1];
-    const seg = sampled[i];
-    const style = motifStrokeStyle(seg.kind, seg.variant);
-    const r0 = trackR * (0.78 + prev.radiusNorm * 0.22);
-    const r1 = trackR * (0.78 + seg.radiusNorm * 0.22);
-    const a0 = prev.angle + params.pitchAngle * 0.08;
-    const a1 = seg.angle + params.pitchAngle * 0.08;
+  const foldAngle = (angle: number): number => {
+    let local = angle - base;
+    local = ((local % sector) + sector) % sector;
+    return base + local;
+  };
 
-    const segment = new paper.Path.Line({
-      from: pointOn(center, a0, r0),
-      to: pointOn(center, a1, r1),
-      strokeColor: paletteStroke(palette.secondary, style.opacity + params.opacity * 0.18),
-      strokeWidth: Math.max(style.width + seg.lineWidth * 0.25, 0.65),
-      strokeCap: 'round',
-    });
-    if (style.dash) {
-      segment.dashArray = style.dash;
+  for (let w = 0; w < N; w += 1) {
+    const rot = w * sector;
+
+    for (let i = 1; i < sampled.length; i += 1) {
+      const prev = sampled[i - 1];
+      const seg = sampled[i];
+      const style = motifStrokeStyle(seg.kind, seg.variant);
+      const pitchNorm = clamp01((seg.radiusNorm - 0.28) / 0.55);
+      const segColor = ringBandColor(
+        palette,
+        Math.floor(pitchNorm * 6) % 7,
+        7,
+        pitchNorm,
+        params.hue * 12,
+        i,
+        sampled.length,
+        seg.opacity,
+      );
+      const r0 = trackR * (0.78 + prev.radiusNorm * 0.22);
+      const r1 = trackR * (0.78 + seg.radiusNorm * 0.22);
+      const a0 = foldAngle(prev.angle + params.pitchAngle * 0.05) + rot;
+      const a1 = foldAngle(seg.angle + params.pitchAngle * 0.05) + rot;
+
+      const segment = new paper.Path.Line({
+        from: pointOn(center, a0, r0),
+        to: pointOn(center, a1, r1),
+        strokeColor: paletteStroke(segColor, style.opacity + params.opacity * 0.2),
+        strokeWidth: u(R, Math.max(style.width + seg.lineWidth * 0.25, 0.65)),
+        strokeCap: 'round',
+      });
+      if (style.dash) {
+        segment.dashArray = style.dash.map((d) => u(R, d));
+      }
+      group.addChild(segment);
     }
-    group.addChild(segment);
-  }
 
-  const last = sampled[sampled.length - 1];
-  const tip = pointOn(
-    center,
-    last.angle + params.pitchAngle * 0.08,
-    trackR * (0.78 + last.radiusNorm * 0.22),
-  );
-  group.addChild(new paper.Path.Circle({
-    center: tip,
-    radius: 1.6 + params.opacity * 1.2,
-    fillColor: paletteStroke(palette.primary, 0.75),
-    strokeColor: null,
-  }));
+    const last = sampled[sampled.length - 1];
+    const tip = pointOn(
+      center,
+      foldAngle(last.angle + params.pitchAngle * 0.05) + rot,
+      trackR * (0.78 + last.radiusNorm * 0.22),
+    );
+    group.addChild(new paper.Path.Circle({
+      center: tip,
+      radius: u(R, 1.4 + params.opacity * 1.0),
+      fillColor: paletteStroke(palette.primary, 0.68),
+      strokeColor: null,
+    }));
+  }
 }
 
-/** f₀ → метка на внешнем кольце. */
+/** f₀ / центроид → метка на внешнем кольце. */
 export function drawPitchMarker(
   group: paper.Group,
   center: paper.Point,
   R: number,
   features: AudioFeatures,
   params: GeometryParams,
-  stroke: StrokeFn,
+  palette: MandalaPalette,
 ): void {
-  if (features.frequency <= 0) {
+  const hz = features.frequency > 0 ? features.frequency : features.spectralCentroid;
+  if (hz < 55) {
     return;
   }
 
   const minHz = 80;
   const maxHz = 2400;
-  const t = (Math.log(features.frequency) - Math.log(minHz))
+  const t = (Math.log(Math.max(hz, minHz)) - Math.log(minHz))
     / (Math.log(maxHz) - Math.log(minHz));
   const angle = -Math.PI / 2 + Math.min(Math.max(t, 0), 1) * Math.PI * 2 + params.pitchAngle * 0.05;
   const pr = R * 0.97;
   const px = pointOn(center, angle, pr);
+  const markColor = ringBandColor(
+    palette,
+    Math.round(t * 6),
+    7,
+    t,
+    hz,
+    0,
+    1,
+    params.opacity,
+  );
 
   group.addChild(new paper.Path.Line({
     from: pointOn(center, angle, R * 0.72),
     to: px,
-    strokeColor: stroke(0.35 + params.opacity * 0.25),
-    strokeWidth: 0.75,
+    strokeColor: paletteStroke(markColor, 0.42 + params.opacity * 0.28),
+    strokeWidth: u(R, 0.75),
     strokeCap: 'round',
   }));
 
   group.addChild(new paper.Path.Circle({
     center: px,
-    radius: 2.2,
-    fillColor: stroke(0.8),
+    radius: u(R, 2.2),
+    fillColor: paletteStroke(markColor, 0.82),
     strokeColor: null,
   }));
+}
+
+function clamp01(value: number): number {
+  return Math.min(Math.max(value, 0), 1);
 }
 
 export function downsampleTrail(points: PitchPoint[], max: number): PitchPoint[] {

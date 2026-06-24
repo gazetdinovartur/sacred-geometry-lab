@@ -1,59 +1,57 @@
 import { MandalaRenderer } from '../geometry/MandalaRenderer';
-import { applySessionVariety } from '../geometry/sessionVariety';
 import { boostParamsForExport } from '../geometry/exportParams';
+import { cymaticModeFromFeatures, dotMandalaReportLines, resolveDotMandalaScaffold } from '../geometry/dotMandalaMath';
+import { DEFAULT_EXPORT_SIZE, resolveRenderStyle, type ExportSize, type ExportStyle } from './exportOptions';
 import type { FeatureSnapshot, GeometryStyle } from '../types';
 import type { VoiceProfileMetrics } from '../audio/VoiceProfile';
 import { isValidSvgMarkup, prepareSnapshotForExport } from './exportValidation';
 
-const EXPORT_SIZE = 960;
-
 let exportCanvas: HTMLCanvasElement | null = null;
 let exportRenderer: MandalaRenderer | null = null;
+let exportRenderSize = DEFAULT_EXPORT_SIZE;
 
 function resetExportSurface(): void {
   exportRenderer = null;
   exportCanvas = null;
 }
 
-function ensureRenderer(): MandalaRenderer {
-  if (!exportCanvas) {
+function ensureRenderer(size: ExportSize): MandalaRenderer {
+  if (exportRenderSize !== size || !exportCanvas || !exportRenderer) {
+    exportRenderSize = size;
+    resetExportSurface();
     exportCanvas = document.createElement('canvas');
   }
 
-  exportCanvas.width = EXPORT_SIZE;
-  exportCanvas.height = EXPORT_SIZE;
+  exportCanvas.width = size;
+  exportCanvas.height = size;
 
   if (!exportRenderer) {
     exportRenderer = new MandalaRenderer(exportCanvas);
   }
 
-  exportRenderer.resizeTo(EXPORT_SIZE);
+  exportRenderer.resizeTo(size);
   return exportRenderer;
 }
 
 function preparedSnapshot(snapshot: FeatureSnapshot): FeatureSnapshot {
-  let snap = prepareSnapshotForExport({
+  return prepareSnapshotForExport({
     ...snapshot,
     params: boostParamsForExport(snapshot.params),
   });
-
-  if (snap.sessionStarted && snap.profileHash) {
-    snap = {
-      ...snap,
-      params: applySessionVariety(snap.params, snap.profileHash, snap.sessionStarted),
-    };
-  }
-
-  return snap;
 }
 
 export function renderMandalaSnapshot(
   snapshot: FeatureSnapshot,
-  style: GeometryStyle,
+  style: ExportStyle | GeometryStyle,
+  size: ExportSize = DEFAULT_EXPORT_SIZE,
 ): MandalaRenderer {
+  const renderStyle = style === 'dots' || style === 'layers'
+    ? resolveRenderStyle(style)
+    : style;
+
   const renderOnce = (): MandalaRenderer => {
-    const renderer = ensureRenderer();
-    renderer.setStyle(style);
+    const renderer = ensureRenderer(size);
+    renderer.setStyle(renderStyle);
     renderer.renderSnapshot(preparedSnapshot(snapshot));
     return renderer;
   };
@@ -66,22 +64,31 @@ export function renderMandalaSnapshot(
   }
 }
 
-export function exportMandalaSvg(snapshot: FeatureSnapshot, style: GeometryStyle): string {
-  const svg = renderMandalaSnapshot(snapshot, style).exportSvg();
+export function exportMandalaSvg(
+  snapshot: FeatureSnapshot,
+  style: ExportStyle | GeometryStyle,
+  size: ExportSize = DEFAULT_EXPORT_SIZE,
+): string {
+  const svg = renderMandalaSnapshot(snapshot, style, size).exportSvg();
   if (!isValidSvgMarkup(svg)) {
     throw new Error('SVG export is empty');
   }
   return svg;
 }
 
-export function exportMandalaPng(snapshot: FeatureSnapshot, style: GeometryStyle): string {
-  const renderer = renderMandalaSnapshot(snapshot, style);
+export function exportMandalaPng(
+  snapshot: FeatureSnapshot,
+  style: ExportStyle | GeometryStyle,
+  size: ExportSize = DEFAULT_EXPORT_SIZE,
+): string {
+  const renderer = renderMandalaSnapshot(snapshot, style, size);
   return renderer.exportPng();
 }
 
 export function sessionReportText(
   snapshots: FeatureSnapshot[],
   profile?: VoiceProfileMetrics,
+  style: ExportStyle | GeometryStyle = 'dots',
 ): string {
   const lines = [
     'Sacred Geometry Lab — отчёт сессии',
@@ -99,6 +106,27 @@ export function sessionReportText(
       profile.calibratedAt
         ? `  калибровка ${new Date(profile.calibratedAt).toISOString().slice(0, 10)}`
         : '  калибровка —',
+    );
+  }
+
+  if (style === 'dots' && snapshots.length > 0) {
+    const composite = snapshots[snapshots.length - 1];
+    const scaffold = resolveDotMandalaScaffold({
+      ...composite,
+      processSnapshots: composite.processSnapshots ?? snapshots,
+    });
+    lines.push(
+      ...dotMandalaReportLines({
+        mode: scaffold.mode,
+        symmetry: scaffold.symmetry,
+        ringCount: scaffold.ringCount,
+        dotCount: 0,
+        spiralPoints: composite.pitchTrail?.length ?? 0,
+        cymaticMode: cymaticModeFromFeatures(composite.features),
+        ringSpacing: scaffold.ringSpacing,
+        frequencyHz: composite.features.frequency,
+        voiceMs: composite.voiceMs ?? snapshots.reduce((sum, s) => sum + (s.voiceMs ?? 0), 0),
+      }),
     );
   }
 

@@ -39,7 +39,14 @@ describe('GeometryPipeline', () => {
     const loud = { ...sampleFeatures(), rms: 0.15, silenceRatio: 0, pauseMs: 0 };
     const norm = profile.normalizeFeatures(loud);
     const held = pipeline.resolve(loud, norm);
-    const silent = pipeline.resolve({ ...sampleFeatures(), rms: 0.001, silenceRatio: 0.7, pauseMs: 3500 }, norm);
+    const silent = pipeline.resolve({
+      ...sampleFeatures(),
+      rms: 0.001,
+      spectralLevel: 0.002,
+      isActive: false,
+      silenceRatio: 0.7,
+      pauseMs: 3500,
+    }, norm);
     expect(silent.opacity).toBeLessThan(held.opacity);
     expect(silent.opacity).toBeGreaterThan(0.12);
   });
@@ -67,6 +74,20 @@ describe('MappingEngine', () => {
     expect(l.radius).toBeGreaterThan(q.radius);
     expect(l.rays).toBeGreaterThanOrEqual(q.rays);
   });
+
+  it('keeps level for textured sound with weak RMS', () => {
+    const profile = new VoiceProfile();
+    profile.skipCalibration();
+    const texture = profile.normalizeFeatures({
+      ...sampleFeatures(),
+      rms: 0.006,
+      spectralLevel: 0.24,
+      frequency: 920,
+      pitchConfidence: 0.28,
+      isActive: true,
+    });
+    expect(texture.rms).toBeGreaterThan(0.1);
+  });
 });
 
 describe('VoiceProfile calibration', () => {
@@ -76,6 +97,9 @@ describe('VoiceProfile calibration', () => {
     const norm = profile.normalizeFeatures({
       rms: 0.08,
       frequency: 0,
+      pitchConfidence: 0,
+      spectralLevel: 0.16,
+      isActive: true,
       spectralCentroid: 1200,
       spectralFlux: 0.02,
       harmonicCount: 3,
@@ -94,6 +118,9 @@ describe('VoiceProfile calibration', () => {
     profile.addCalibrationSample({
       rms: 0.1,
       frequency: 0,
+      pitchConfidence: 0,
+      spectralLevel: 0.18,
+      isActive: true,
       spectralCentroid: 1400,
       spectralFlux: 0.03,
       harmonicCount: 2,
@@ -169,30 +196,81 @@ describe('VoiceProfile spectrum gain', () => {
   });
 });
 
-describe('session variety', () => {
-  it('shifts params deterministically per session', async () => {
-    const { applySessionVariety } = await import('../geometry/sessionVariety');
-    const base = {
-      radius: 128,
-      rays: 6,
-      rotationSpeed: 0,
-      hue: 260,
-      opacity: 0.7,
-      symmetry: 6,
-      breathRing: 0,
+describe('dot mandala math', () => {
+  it('uses mean symmetry across session sources (min 4)', async () => {
+    const { resolveDotMandalaScaffold } = await import('../geometry/dotMandalaMath');
+    const scaffold = resolveDotMandalaScaffold({
+      timestamp: 0,
+      label: 'test',
+      features: sampleFeatures(),
+      params: { ...sampleParams(), symmetry: 6 },
+      processSnapshots: [
+        {
+          timestamp: 0,
+          label: 'a',
+          features: sampleFeatures(),
+          params: { ...sampleParams(), symmetry: 4 },
+        },
+        {
+          timestamp: 1,
+          label: 'b',
+          features: sampleFeatures(),
+          params: { ...sampleParams(), symmetry: 8 },
+        },
+      ],
+    });
+    expect(scaffold.symmetry).toBe(6);
+    expect(scaffold.mode).toBe('process');
+  });
+
+  it('synthesizes breath rings from pitch trail', async () => {
+    const { resolveRingSnapshots, dotMandalaMode } = await import('../geometry/dotMandalaMath');
+    const trail = Array.from({ length: 24 }, (_, i) => ({
+      angle: i * 0.3,
+      radiusNorm: 0.4 + (i % 5) * 0.08,
       lineWidth: 1,
-      waveAmplitude: 0,
-      spiralTurns: 0,
-      dotCount: 4,
-      elementCount: 4,
-      pitchAngle: 0,
+      opacity: 0.6,
+      fold: 6,
+      width: 0.5,
+      kind: 'dot' as const,
+      variant: 0,
+    }));
+    const snapshot = {
+      timestamp: 0,
+      label: 'live',
+      features: sampleFeatures(),
+      params: { ...sampleParams(), elementCount: 5 },
+      pitchTrail: trail,
     };
-    const a = applySessionVariety(base, 'vp_abc', 1_700_000_000_000);
-    const b = applySessionVariety(base, 'vp_abc', 1_700_000_000_000);
-    const c = applySessionVariety(base, 'vp_abc', 1_700_086_400_000);
-    expect(a.hue).toBe(b.hue);
-    expect(a.radius).not.toBe(base.radius);
-    expect(c.hue).not.toBe(a.hue);
+    expect(dotMandalaMode(snapshot)).toBe('breath');
+    const rings = resolveRingSnapshots(snapshot);
+    expect(rings.length).toBeGreaterThan(1);
+  });
+
+  it('modulates golden angle from pitch', async () => {
+    const { pitchModulatedGoldenAngle, GOLDEN_ANGLE_RAD } = await import('../geometry/dotMandalaMath');
+    const low = pitchModulatedGoldenAngle(0);
+    const high = pitchModulatedGoldenAngle(1);
+    expect(low).toBeLessThan(GOLDEN_ANGLE_RAD);
+    expect(high).toBeGreaterThan(GOLDEN_ANGLE_RAD);
+  });
+
+  it('derives jitter only from audio features', async () => {
+    const { signalPitchJitter } = await import('../geometry/dotMandalaMath');
+    const a = signalPitchJitter({ ...sampleFeatures(), frequency: 220 });
+    const b = signalPitchJitter({ ...sampleFeatures(), frequency: 220 });
+    const c = signalPitchJitter({ ...sampleFeatures(), frequency: 440 });
+    expect(a).toBe(b);
+    expect(c).not.toBe(a);
+  });
+});
+
+describe('session variety', () => {
+  it('no longer shifts params from session hash', async () => {
+    const { applySessionVariety } = await import('../geometry/sessionVariety');
+    const base = sampleParams();
+    const shifted = applySessionVariety(base, 'vp_abc', 1_700_000_000_000);
+    expect(shifted).toEqual(base);
   });
 });
 
@@ -260,6 +338,9 @@ function sampleFeatures(): AudioFeatures {
   return {
     rms: 0.12,
     frequency: 220,
+    pitchConfidence: 0.82,
+    spectralLevel: 0.14,
+    isActive: true,
     spectralCentroid: 1800,
     spectralFlux: 0.05,
     harmonicCount: 4,

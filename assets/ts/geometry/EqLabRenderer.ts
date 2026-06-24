@@ -55,8 +55,23 @@ export class EqLabRenderer implements LabRenderer {
   }
 
   setLiveMetrics(frequencyHz: number, rmsNorm: number, live: boolean): void {
-    this.frequencyHz = frequencyHz;
-    this.rmsNorm = rmsNorm;
+    if (live) {
+      if (frequencyHz > 0) {
+        this.frequencyHz = frequencyHz;
+      }
+      if (rmsNorm > 0) {
+        this.rmsNorm = this.rmsNorm > 0
+          ? this.rmsNorm * 0.42 + rmsNorm * 0.58
+          : rmsNorm;
+      } else if (this.rmsNorm > 0.04) {
+        this.rmsNorm *= 0.88;
+      } else {
+        this.rmsNorm *= 0.82;
+      }
+    } else {
+      this.frequencyHz = frequencyHz;
+      this.rmsNorm = rmsNorm;
+    }
     this.live = live;
   }
 

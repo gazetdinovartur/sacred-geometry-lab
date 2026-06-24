@@ -63,7 +63,7 @@ export class DualAudioEngine {
   private createAnalyser(stream: MediaStream): AnalyserNode {
     const analyser = this.context!.createAnalyser();
     analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.65;
+    analyser.smoothingTimeConstant = 0.52;
     this.context!.createMediaStreamSource(stream).connect(analyser);
     return analyser;
   }

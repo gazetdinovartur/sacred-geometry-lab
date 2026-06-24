@@ -95,6 +95,40 @@ final class PatternApiController extends AbstractController
         ]);
     }
 
+    #[Route('/{id}', name: 'api_patterns_update', methods: ['PATCH'])]
+    #[IsGranted('ROLE_USER')]
+    public function update(int $id, Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $pattern = $this->patterns->find($id);
+        if (!$pattern instanceof Pattern || $pattern->getUser()->getId() !== $user->getId()) {
+            return $this->json(['error' => 'Not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $payload = json_decode($request->getContent(), true);
+        if (!is_array($payload) || !array_key_exists('title', $payload)) {
+            return $this->json(['error' => 'title required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $title = trim((string) $payload['title']);
+        if ($title === '') {
+            $title = 'Узор';
+        }
+        if (mb_strlen($title) > 120) {
+            return $this->json(['error' => 'title too long'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $pattern->setTitle($title);
+        $this->entityManager->flush();
+
+        return $this->json([
+            'id' => $pattern->getId(),
+            'title' => $pattern->getTitle(),
+        ]);
+    }
+
     #[Route('/{id}', name: 'api_patterns_delete', methods: ['DELETE'])]
     #[IsGranted('ROLE_USER')]
     public function delete(int $id): JsonResponse

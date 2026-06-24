@@ -1,73 +1,43 @@
 import JSZip from 'jszip';
-import type { FeatureSnapshot, GeometryStyle } from '../types';
+import type { ExportStyle, ExportSize } from './exportOptions';
+import { DEFAULT_EXPORT_SIZE } from './exportOptions';
+import type { FeatureSnapshot } from '../types';
 import {
   exportMandalaPng,
-  exportMandalaSvg,
   sessionReportText,
 } from './mandalaExport';
 import type { VoiceProfileMetrics } from '../audio/VoiceProfile';
 import { triggerDownloadBlob } from './exportFiles';
+import { sessionZipFilename } from './exportNames';
 import { pngBytesFromDataUrl } from './exportValidation';
+import { buildSessionComposite } from './sessionComposite';
 
-/** Покадровый экспорт Process → ZIP с мандалами и отчётом. */
+/** Покадровый экспорт Process → ZIP (только PNG) с отчётом. */
 export async function exportSessionFrames(
   snapshots: FeatureSnapshot[],
-  style: GeometryStyle,
+  style: ExportStyle,
   profile?: VoiceProfileMetrics,
-): Promise<void> {
+  size: ExportSize = DEFAULT_EXPORT_SIZE,
+): Promise<string> {
   if (snapshots.length === 0) {
-    return;
+    return '';
   }
 
+  const filename = sessionZipFilename();
   const zip = new JSZip();
+  const composite = buildSessionComposite(snapshots);
 
   for (let i = 0; i < snapshots.length; i += 1) {
     const snap = snapshots[i];
-    const png = pngBytesFromDataUrl(exportMandalaPng(snap, style));
-    const svg = exportMandalaSvg(snap, style);
+    const png = pngBytesFromDataUrl(exportMandalaPng(snap, style, size));
     const stem = `frame-${String(i + 1).padStart(3, '0')}`;
     zip.file(`${stem}.png`, png);
-    zip.file(`${stem}.svg`, svg);
   }
 
-  const composite = blendSnapshots(snapshots);
-  zip.file('frame-000-itog.png', pngBytesFromDataUrl(exportMandalaPng(composite, style)));
-  zip.file('frame-000-itog.svg', exportMandalaSvg(composite, style));
-  zip.file('session-report.txt', sessionReportText(snapshots, profile));
+  zip.file('frame-000-itog.png', pngBytesFromDataUrl(exportMandalaPng(composite, style, size)));
+  zip.file('session-report.txt', sessionReportText(snapshots, profile, style));
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-  triggerDownloadBlob(blob, 'sgl-session.zip');
-}
-
-function blendSnapshots(snapshots: FeatureSnapshot[]): FeatureSnapshot {
-  const last = snapshots[snapshots.length - 1];
-  const mergedTrail = snapshots.flatMap((s) => s.pitchTrail ?? []);
-  const avgSpectrum = averageSpectrum(snapshots);
-
-  return {
-    ...last,
-    label: 'Итог',
-    pitchTrail: mergedTrail,
-    spectrum: avgSpectrum,
-    processSnapshots: [...snapshots],
-    sessionStarted: snapshots[0]?.sessionStarted,
-    profileHash: snapshots[0]?.profileHash,
-    voiceMs: snapshots.reduce((sum, s) => sum + (s.voiceMs ?? 0), 0),
-  };
-}
-
-function averageSpectrum(snapshots: FeatureSnapshot[]): number[] | undefined {
-  const withSpectrum = snapshots.filter((s) => s.spectrum?.length);
-  if (withSpectrum.length === 0) {
-    return undefined;
-  }
-
-  const len = withSpectrum[0].spectrum!.length;
-  const avg = new Array(len).fill(0);
-  withSpectrum.forEach((snap) => {
-    snap.spectrum!.forEach((v, i) => {
-      avg[i] += v;
-    });
-  });
-  return avg.map((v) => v / withSpectrum.length);
+  triggerDownloadBlob(blob, filename);
+  return filename;
 }

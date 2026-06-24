@@ -1,15 +1,27 @@
 import type { AudioFeatures } from '../types';
 import { symmetryFromRhythm } from '../geometry/SymmetryResolver';
 
-const SILENCE_THRESHOLD = 0.015;
+const SILENCE_ENTER = 0.008;
+const SILENCE_EXIT = 0.012;
+const SPECTRAL_ENTER = 0.016;
+const SPECTRAL_EXIT = 0.011;
 const ONSET_WINDOW_MS = 4000;
 const ONSET_RMS_FACTOR = 1.35;
+const RMS_ATTACK = 0.46;
+const RMS_RELEASE = 0.24;
+const F0_SMOOTH = 0.22;
+const F0_HOLD_DECAY = 0.965;
+const PITCH_CORR_MIN = 0.2;
+const PEAK_MAG_MIN = 22;
 
 export class FeatureExtractor {
   private timeData: Float32Array;
   private freqData: Uint8Array;
   private lastRms = 0;
+  private smoothedRms = 0;
   private smoothedF0 = 0;
+  private smoothedPitchConfidence = 0;
+  private voiceActive = false;
   private silenceSince = 0;
   private lastFrame = performance.now();
   private onsetTimestamps: number[] = [];
@@ -29,24 +41,67 @@ export class FeatureExtractor {
     const delta = now - this.lastFrame;
     this.lastFrame = now;
 
-    const rms = this.computeRms(this.timeData);
-    const rawFrequency = rms > SILENCE_THRESHOLD
-      ? this.estimatePitch(this.timeData, this.analyser.context.sampleRate)
-      : 0;
+    const rmsRaw = this.computeRms(this.timeData);
+    const rmsSmooth = rmsRaw > this.smoothedRms ? RMS_ATTACK : RMS_RELEASE;
+    this.smoothedRms = this.smoothedRms <= 0
+      ? rmsRaw
+      : this.smoothedRms * (1 - rmsSmooth) + rmsRaw * rmsSmooth;
+    const rms = this.smoothedRms;
+
+    const spectralLevel = this.computeSpectralLevel(this.freqData);
+    const energy = Math.max(rms, spectralLevel * 0.78);
+
+    this.voiceActive = this.voiceActive
+      ? energy >= SILENCE_ENTER || spectralLevel >= SPECTRAL_ENTER
+      : energy >= SILENCE_EXIT || spectralLevel >= SPECTRAL_EXIT;
+
+    const sampleRate = this.analyser.context.sampleRate;
+    const spectralCentroid = this.computeSpectralCentroid(this.freqData, sampleRate);
+    const spectralFlux = this.computeSpectralFlux(this.freqData);
+    const harmonicCount = this.countHarmonics(this.freqData);
+
+    let rawFrequency = 0;
+    let pitchConfidence = 0;
+
+    if (this.voiceActive) {
+      const pitch = this.estimatePitch(this.timeData, sampleRate);
+      if (pitch.hz > 0) {
+        rawFrequency = pitch.hz;
+        pitchConfidence = pitch.confidence;
+      } else {
+        const peakHz = this.estimatePeakFrequency(this.freqData, sampleRate);
+        if (peakHz > 0) {
+          rawFrequency = peakHz;
+          pitchConfidence = 0.48;
+        } else if (spectralCentroid >= 55) {
+          rawFrequency = spectralCentroid;
+          pitchConfidence = 0.3;
+        }
+      }
+    }
 
     let frequency = 0;
     if (rawFrequency > 0) {
       this.smoothedF0 = this.smoothedF0 <= 0
         ? rawFrequency
-        : this.smoothedF0 * 0.82 + rawFrequency * 0.18;
+        : this.smoothedF0 * (1 - F0_SMOOTH) + rawFrequency * F0_SMOOTH;
+      this.smoothedPitchConfidence = this.smoothedPitchConfidence <= 0
+        ? pitchConfidence
+        : this.smoothedPitchConfidence * (1 - F0_SMOOTH) + pitchConfidence * F0_SMOOTH;
       frequency = this.smoothedF0;
-    } else if (rms <= SILENCE_THRESHOLD) {
+    } else if (this.voiceActive && this.smoothedF0 > 0) {
+      this.smoothedF0 *= F0_HOLD_DECAY;
+      this.smoothedPitchConfidence *= 0.94;
+      frequency = this.smoothedF0;
+      pitchConfidence = this.smoothedPitchConfidence;
+    } else if (!this.voiceActive) {
       this.smoothedF0 = 0;
+      this.smoothedPitchConfidence = 0;
+    } else {
+      pitchConfidence = this.smoothedPitchConfidence;
     }
-    const spectralCentroid = this.computeSpectralCentroid(this.freqData, this.analyser.context.sampleRate);
-    const spectralFlux = this.computeSpectralFlux(this.freqData);
-    const harmonicCount = this.countHarmonics(this.freqData);
-    const isSilent = rms < SILENCE_THRESHOLD;
+
+    const isSilent = !this.voiceActive;
 
     if (isSilent) {
       this.silenceSince += delta;
@@ -54,12 +109,12 @@ export class FeatureExtractor {
       this.silenceSince = 0;
     }
 
-    if (this.lastRms > SILENCE_THRESHOLD && rms > this.lastRms * ONSET_RMS_FACTOR) {
+    if (this.lastRms > SILENCE_ENTER && energy > this.lastRms * ONSET_RMS_FACTOR) {
       this.onsetTimestamps.push(now);
     }
 
     this.onsetTimestamps = this.onsetTimestamps.filter((t) => now - t < ONSET_WINDOW_MS);
-    this.lastRms = rms;
+    this.lastRms = energy;
 
     const silenceRatio = isSilent ? Math.min(this.silenceSince / 3000, 1) : 0;
     const recentOnsets = this.onsetTimestamps.length;
@@ -68,6 +123,9 @@ export class FeatureExtractor {
     return {
       rms,
       frequency,
+      pitchConfidence: frequency > 0 ? pitchConfidence : 0,
+      spectralLevel,
+      isActive: this.voiceActive,
       spectralCentroid,
       spectralFlux,
       harmonicCount,
@@ -80,11 +138,23 @@ export class FeatureExtractor {
 
   reset(): void {
     this.lastRms = 0;
+    this.smoothedRms = 0;
     this.smoothedF0 = 0;
+    this.smoothedPitchConfidence = 0;
+    this.voiceActive = false;
     this.silenceSince = 0;
     this.lastFrame = performance.now();
     this.onsetTimestamps = [];
     this.prevFreqData.fill(0);
+  }
+
+  private computeSpectralLevel(freqData: Uint8Array): number {
+    let sum = 0;
+    const start = 2;
+    for (let i = start; i < freqData.length; i += 1) {
+      sum += freqData[i];
+    }
+    return sum / ((freqData.length - start) * 255);
   }
 
   private computeSpectralFlux(freqData: Uint8Array): number {
@@ -107,9 +177,20 @@ export class FeatureExtractor {
     return Math.sqrt(sum / buffer.length);
   }
 
-  private estimatePitch(buffer: Float32Array, sampleRate: number): number {
-    const minLag = Math.floor(sampleRate / 800);
-    const maxLag = Math.floor(sampleRate / 70);
+  private estimatePitch(
+    buffer: Float32Array,
+    sampleRate: number,
+  ): { hz: number; confidence: number } {
+    let energy = 0;
+    for (let i = 0; i < buffer.length; i += 1) {
+      energy += buffer[i] * buffer[i];
+    }
+    if (energy < 1e-8) {
+      return { hz: 0, confidence: 0 };
+    }
+
+    const minLag = Math.floor(sampleRate / 900);
+    const maxLag = Math.floor(sampleRate / 65);
     let bestLag = 0;
     let bestCorr = 0;
 
@@ -124,7 +205,38 @@ export class FeatureExtractor {
       }
     }
 
-    return bestLag > 0 ? sampleRate / bestLag : 0;
+    const confidence = bestCorr / energy;
+    if (bestLag <= 0 || confidence < PITCH_CORR_MIN) {
+      return { hz: 0, confidence: 0 };
+    }
+
+    return { hz: sampleRate / bestLag, confidence: Math.min(confidence, 1) };
+  }
+
+  private estimatePeakFrequency(freqData: Uint8Array, sampleRate: number): number {
+    const binWidth = sampleRate / (freqData.length * 2);
+    const minBin = Math.max(2, Math.floor(70 / binWidth));
+    const maxBin = Math.min(freqData.length - 1, Math.floor(4200 / binWidth));
+    let bestBin = 0;
+    let bestMag = 0;
+    let sum = 0;
+
+    for (let i = minBin; i <= maxBin; i += 1) {
+      const mag = freqData[i];
+      sum += mag;
+      if (mag > bestMag) {
+        bestMag = mag;
+        bestBin = i;
+      }
+    }
+
+    const span = Math.max(maxBin - minBin + 1, 1);
+    const avg = sum / span;
+    if (bestMag < PEAK_MAG_MIN || bestMag < avg * 1.35) {
+      return 0;
+    }
+
+    return bestBin * binWidth;
   }
 
   private computeSpectralCentroid(freqData: Uint8Array, sampleRate: number): number {
@@ -132,7 +244,7 @@ export class FeatureExtractor {
     let total = 0;
     const binWidth = sampleRate / (freqData.length * 2);
 
-    for (let i = 0; i < freqData.length; i += 1) {
+    for (let i = 2; i < freqData.length; i += 1) {
       const mag = freqData[i];
       weighted += i * binWidth * mag;
       total += mag;
@@ -144,7 +256,7 @@ export class FeatureExtractor {
   private countHarmonics(freqData: Uint8Array): number {
     let peaks = 0;
     for (let i = 2; i < freqData.length - 2; i += 1) {
-      if (freqData[i] > 40 && freqData[i] > freqData[i - 1] && freqData[i] > freqData[i + 1]) {
+      if (freqData[i] > 32 && freqData[i] > freqData[i - 1] && freqData[i] > freqData[i + 1]) {
         peaks += 1;
       }
     }

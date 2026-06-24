@@ -3,10 +3,21 @@
 {% block title %}Мои узоры — Sacred Geometry Lab{% endblock %}
 
 {% block body %}
+<script type="application/json" id="sgl-account-patterns">{{ patterns_data|default([])|json_encode|raw }}</script>
 <article class="page prose" x-data="accountPage()">
     <div class="account-header">
         <h1>Мои узоры</h1>
-        <a href="{{ path('account_logout') }}" class="btn btn--ghost btn--sm">Выйти</a>
+        <div class="account-header__actions">
+            <button type="button"
+                    class="btn btn--ghost btn--sm"
+                    x-show="patterns.length > 0"
+                    x-cloak
+                    :disabled="downloadingArchive"
+                    @click="downloadPngArchive()">
+                <span x-text="downloadingArchive ? 'Собираем…' : 'PNG архив'"></span>
+            </button>
+            <a href="{{ path('account_logout') }}" class="btn btn--ghost btn--sm">Выйти</a>
+        </div>
     </div>
 
     <section class="voice-profile-panel">
@@ -18,29 +29,69 @@
         <button type="button" class="btn btn--ghost btn--sm" @click="resetVoiceProfile()">Сбросить профиль</button>
     </section>
 
-    {% if patterns is empty %}
-        <p>Пока нет сохранённых узоров. Создайте мандалу на главной и нажмите «Сохранить».</p>
-        <p><a href="{{ path('home') }}" class="btn btn--primary">На главную</a></p>
-    {% else %}
-        <ul class="pattern-list">
-            {% for pattern in patterns %}
-                <li class="pattern-list__item">
+    <template x-if="patterns.length === 0">
+        <div>
+            <p>Пока пусто. Создайте мандалу на главной и выберите «Сохранить в своё место».</p>
+            <p><a href="{{ path('home') }}" class="btn btn--primary">На главную</a></p>
+        </div>
+    </template>
+
+    <ul class="pattern-list" x-show="patterns.length > 0" x-cloak>
+        <template x-for="pattern in patterns" :key="pattern.id">
+            <li class="pattern-list__item">
+                <div class="pattern-list__head">
                     <div class="pattern-list__meta">
-                        <strong>{{ pattern.title ?? 'Узор' }}</strong>
-                        <span>{{ pattern.createdAt|date('d.m.Y H:i') }} · {{ pattern.mode }} · {{ pattern.geometryStyle }}</span>
+                        <template x-if="editingId !== pattern.id">
+                            <div class="pattern-list__title-row">
+                                <strong x-text="pattern.title"></strong>
+                                <button type="button"
+                                        class="btn btn--ghost btn--sm pattern-list__rename"
+                                        @click="startRename(pattern)">
+                                    Переименовать
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="editingId === pattern.id">
+                            <form class="pattern-list__rename-form"
+                                  @submit.prevent="saveRename()">
+                                <input type="text"
+                                       class="pattern-list__rename-input"
+                                       x-model="editTitle"
+                                       maxlength="120"
+                                       aria-label="Название узора"
+                                       @keydown.escape.prevent="cancelRename()">
+                                <div class="pattern-list__rename-actions">
+                                    <button type="submit" class="btn btn--primary btn--sm">Сохранить</button>
+                                    <button type="button"
+                                            class="btn btn--ghost btn--sm"
+                                            @click="cancelRename()">
+                                        Отмена
+                                    </button>
+                                </div>
+                                <p class="pattern-list__rename-error"
+                                   x-show="renameError"
+                                   x-text="renameError"></p>
+                            </form>
+                        </template>
+                        <span x-text="`${pattern.createdAt} · ${pattern.mode} · ${styleLabel(pattern.geometryStyle)}`"></span>
                     </div>
                     <div class="pattern-list__actions">
                         <button type="button"
                                 class="btn btn--ghost btn--sm"
-                                @click="deletePattern({{ pattern.id }})">
+                                @click="downloadPattern(pattern)">
+                            SVG
+                        </button>
+                        <button type="button"
+                                class="btn btn--ghost btn--sm"
+                                @click="deletePattern(pattern.id)">
                             Удалить
                         </button>
                     </div>
-                    <div class="pattern-list__preview">{{ pattern.svg|raw }}</div>
-                </li>
-            {% endfor %}
-        </ul>
-    {% endif %}
+                </div>
+                <div class="pattern-list__preview" x-html="pattern.svg"></div>
+            </li>
+        </template>
+    </ul>
 
     <section class="account-danger">
         <button type="button" class="btn btn--ghost btn--sm" @click="deleteAccount()">Удалить аккаунт</button>

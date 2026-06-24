@@ -144,7 +144,7 @@ export class VoiceProfile {
   }
 
   observe(features: AudioFeatures): void {
-    if (features.rms < 0.005) {
+    if (features.rms < 0.003 && features.spectralLevel < 0.012) {
       return;
     }
     this.collectBounds(features);
@@ -163,11 +163,18 @@ export class VoiceProfile {
     const rmsRange = Math.max(this.rmsMax - this.rmsMin, 0.018);
     const centroidRange = Math.max(this.centroidMax - this.centroidMin, 350);
 
-    const pitch = features.frequency > 0
-      ? clamp((features.frequency - this.f0Min) / f0Range, 0, 1)
-      : 0.5;
+    const levelSource = Math.max(features.rms, features.spectralLevel * 0.72);
 
-    const rmsLinear = clamp((features.rms - this.rmsMin) / rmsRange, 0, 1);
+    const pitchFromF0 = features.frequency > 0 && features.pitchConfidence >= 0.45
+      ? clamp((features.frequency - this.f0Min) / f0Range, 0, 1)
+      : null;
+    const pitch = pitchFromF0 ?? clamp(
+      (features.spectralCentroid - this.centroidMin) / centroidRange,
+      0,
+      1,
+    );
+
+    const rmsLinear = clamp((levelSource - this.rmsMin) / rmsRange, 0, 1);
     const rms = Math.pow(rmsLinear, 0.46);
 
     return {
@@ -183,7 +190,8 @@ export class VoiceProfile {
     const rmsMin = this.rmsMin === Infinity ? 0.003 : this.rmsMin;
     const rmsMax = Math.max(this.rmsMax, features.rms, 0.05);
     const range = Math.max(rmsMax - rmsMin, 0.02);
-    const rmsLinear = clamp((features.rms - rmsMin) / range, 0, 1);
+    const levelSource = Math.max(features.rms, features.spectralLevel * 0.72);
+    const rmsLinear = clamp((levelSource - rmsMin) / range, 0, 1);
     const rms = Math.pow(rmsLinear, 0.44);
 
     return {
@@ -257,7 +265,7 @@ export class VoiceProfile {
    * Множитель для спектральных сегментов: при макс. громкости калибровки кольцо заполняется сильнее.
    * Во время калибровки опирается на текущий running max.
    */
-  spectrumGain(rawRms: number): number {
+  spectrumGain(rawRms: number, spectralLevel = 0): number {
     const { min } = this.getRmsReference();
     let max = this.rmsMax;
     if (this.calibrating || max === Infinity || max <= min + 0.008) {
@@ -266,8 +274,9 @@ export class VoiceProfile {
       max = Math.max(max, min + 0.025);
     }
 
+    const level = Math.max(rawRms, spectralLevel * 0.72);
     const floor = min + (max - min) * 0.06;
-    const t = clamp((rawRms - floor) / (max - floor), 0, 1);
+    const t = clamp((level - floor) / (max - floor), 0, 1);
     return 0.42 + Math.pow(t, 0.52) * 1.35;
   }
 
@@ -315,9 +324,9 @@ export class VoiceProfile {
       this.f0Min = Math.min(this.f0Min, features.frequency);
       this.f0Max = Math.max(this.f0Max, features.frequency);
     }
-    if (features.rms > 0.003) {
+    if (features.rms > 0.003 || features.spectralLevel > 0.012) {
       this.rmsMin = Math.min(this.rmsMin, features.rms);
-      this.rmsMax = Math.max(this.rmsMax, features.rms);
+      this.rmsMax = Math.max(this.rmsMax, Math.max(features.rms, features.spectralLevel * 0.65));
     }
     if (features.spectralCentroid > 0) {
       this.centroidMin = Math.min(this.centroidMin, features.spectralCentroid);

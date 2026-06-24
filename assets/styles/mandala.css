@@ -382,14 +382,60 @@
 .lab__controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 0.5rem;
   justify-content: center;
+  align-items: flex-end;
 }
 
-.export-group {
+.export-form {
   display: flex;
-  gap: 0.5rem;
   flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: flex-end;
+  justify-content: center;
+  flex-basis: 100%;
+  margin-top: 0.65rem;
+  padding-top: 0.15rem;
+}
+
+.export-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 7.5rem;
+}
+
+.export-field__label {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.export-control {
+  height: 2.5rem;
+  box-sizing: border-box;
+}
+
+select.export-control {
+  appearance: none;
+  min-width: 9.5rem;
+  padding: 0 1.55rem 0 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%) calc(100% - 0.85rem) 52% / 0.35rem 0.35rem no-repeat,
+    transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+button.export-control {
+  min-width: 9.5rem;
+  padding-inline: 1rem;
   justify-content: center;
 }
 

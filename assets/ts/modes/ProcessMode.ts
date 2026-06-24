@@ -4,10 +4,10 @@ import { blendGeometryParams } from '../geometry/SymmetryResolver';
 
 const SNAPSHOT_INTERVAL_MS = 12000;
 const FIRST_SNAPSHOT_MS = 7000;
-const MAX_SNAPSHOTS = 10;
 const SIGNIFICANT_FLUX = 0.1;
 const SIGNIFICANT_CENTROID_DELTA = 500;
 const MIN_CHANGE_GAP_MS = 5000;
+const MIN_FINAL_GAP_MS = 2500;
 
 export class ProcessMode {
   private snapshots: FeatureSnapshot[] = [];
@@ -47,22 +47,29 @@ export class ProcessMode {
     const sinceLast = now - this.lastCapture;
 
     const shouldCapture = (this.snapshots.length === 0 && elapsed >= FIRST_SNAPSHOT_MS)
-      || (sinceLast >= SNAPSHOT_INTERVAL_MS && this.snapshots.length < MAX_SNAPSHOTS)
-      || (significantChange && sinceLast >= MIN_CHANGE_GAP_MS && this.snapshots.length < MAX_SNAPSHOTS);
+      || sinceLast >= SNAPSHOT_INTERVAL_MS
+      || (significantChange && sinceLast >= MIN_CHANGE_GAP_MS);
 
     if (shouldCapture) {
-      const index = this.snapshots.length + 1;
-      this.snapshots.push({
-        ...structuredClone(snapshot),
-        label: `Этап ${index}`,
-      });
-      this.lastCapture = now;
-      this.lastCentroid = snapshot.features.spectralCentroid;
+      this.pushSnapshot(snapshot);
       return true;
     }
 
     this.lastCentroid = snapshot.features.spectralCentroid;
     return false;
+  }
+
+  /** Финальный кадр при «Стоп» — тишина тоже часть процесса. */
+  ensureClosingCapture(snapshot: FeatureSnapshot): void {
+    if (this.snapshots.length === 0) {
+      this.pushSnapshot(snapshot, 'Этап 1');
+      return;
+    }
+
+    const sinceLast = snapshot.timestamp - this.lastCapture;
+    if (sinceLast >= MIN_FINAL_GAP_MS) {
+      this.pushSnapshot(snapshot);
+    }
   }
 
   finalize(fullPitchTrail: FeatureSnapshot['pitchTrail'] = []): FeatureSnapshot | null {
@@ -116,6 +123,16 @@ export class ProcessMode {
 
   getComposite(): FeatureSnapshot | null {
     return this.composite;
+  }
+
+  private pushSnapshot(snapshot: FeatureSnapshot, label?: string): void {
+    const index = this.snapshots.length + 1;
+    this.snapshots.push({
+      ...structuredClone(snapshot),
+      label: label ?? `Этап ${index}`,
+    });
+    this.lastCapture = snapshot.timestamp;
+    this.lastCentroid = snapshot.features.spectralCentroid;
   }
 }
 

@@ -13,7 +13,7 @@
   --accent-soft: rgba(107, 91, 149, 0.12);
   --border: rgba(26, 26, 26, 0.08);
   --canvas-bg: #ffffff;
-  --line: #2a2840;
+  --line: #524878;
 }
 
 .theme-dark {
@@ -25,7 +25,7 @@
   --accent-soft: rgba(168, 152, 216, 0.14);
   --border: rgba(232, 228, 220, 0.1);
   --canvas-bg: #1a1820;
-  --line: #e8e4dc;
+  --line: #ddd6f0;
 }
 
 *,

@@ -58,7 +58,7 @@ export interface FeatureSnapshot {
   pitchTrail?: PitchPoint[];
 }
 
-export type LabMode = 'live' | 'process' | 'dialog';
+export type LabMode = 'live' | 'process';
 
 export type DialogFrame = {
   left: FeatureSnapshot;

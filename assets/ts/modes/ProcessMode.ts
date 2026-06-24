@@ -1,12 +1,13 @@
+import type { LabRenderer } from '../geometry/LabRenderer';
 import type { FeatureSnapshot } from '../types';
 import { blendGeometryParams } from '../geometry/SymmetryResolver';
-import { MandalaRenderer } from '../geometry/MandalaRenderer';
 
-const SNAPSHOT_INTERVAL_MS = 5000;
-const FIRST_SNAPSHOT_MS = 3000;
-const MAX_SNAPSHOTS = 6;
-const SIGNIFICANT_FLUX = 0.08;
-const SIGNIFICANT_CENTROID_DELTA = 450;
+const SNAPSHOT_INTERVAL_MS = 12000;
+const FIRST_SNAPSHOT_MS = 7000;
+const MAX_SNAPSHOTS = 10;
+const SIGNIFICANT_FLUX = 0.1;
+const SIGNIFICANT_CENTROID_DELTA = 500;
+const MIN_CHANGE_GAP_MS = 5000;
 
 export class ProcessMode {
   private snapshots: FeatureSnapshot[] = [];
@@ -15,7 +16,7 @@ export class ProcessMode {
   private sessionStart = 0;
   private lastCentroid = 0;
 
-  constructor(private readonly renderer: MandalaRenderer) {}
+  constructor(private readonly renderer: LabRenderer) {}
 
   reset(): void {
     this.snapshots = [];
@@ -47,7 +48,7 @@ export class ProcessMode {
 
     const shouldCapture = (this.snapshots.length === 0 && elapsed >= FIRST_SNAPSHOT_MS)
       || (sinceLast >= SNAPSHOT_INTERVAL_MS && this.snapshots.length < MAX_SNAPSHOTS)
-      || (significantChange && sinceLast >= 2000 && this.snapshots.length < MAX_SNAPSHOTS);
+      || (significantChange && sinceLast >= MIN_CHANGE_GAP_MS && this.snapshots.length < MAX_SNAPSHOTS);
 
     if (shouldCapture) {
       const index = this.snapshots.length + 1;

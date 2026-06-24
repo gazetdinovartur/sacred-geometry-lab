@@ -22,12 +22,6 @@
                         @click="$store.lab.setMode('process')">
                     Процесс
                 </button>
-                <button type="button"
-                        class="mode-switch__btn"
-                        :class="{ 'is-active': $store.lab.mode === 'dialog' }"
-                        @click="$store.lab.setMode('dialog')">
-                    Диалог
-                </button>
             </div>
             <button type="button"
                     class="btn btn--ghost btn--sm lab__fullscreen-exit"
@@ -93,11 +87,6 @@
                 <span class="widget__desc">тишина → дыхание</span>
                 <span class="widget__value" x-text="$store.lab.silenceLabel"></span>
             </div>
-            <div class="widget" x-show="$store.lab.mode === 'dialog'" title="Насколько оба голоса звучат одновременно">
-                <span class="widget__label">Контакт</span>
-                <span class="widget__desc">перекрытие</span>
-                <span class="widget__value" x-text="$store.lab.overlapLabel"></span>
-            </div>
         </div>
 
         <div class="process-panel"
@@ -113,13 +102,14 @@
             </div>
             <p class="process-panel__hint"
                x-show="$store.lab.isActive && !$store.lab.timeline.length">
-                Говорите — мандала собирается лепестками по тону и симметрии. «Стоп» — итог.
+                Говорите — этапы фиксируются реже (~12 с). «Стоп» — итог.
             </p>
             <p class="process-panel__hint"
                x-show="!$store.lab.isActive && $store.lab.activeSnapshot === -1">
                 Итог — наложение всех этапов. Нажмите «Сейчас», чтобы вернуться к последнему кадру.
             </p>
-            <div class="process-timeline" x-show="$store.lab.timeline.length">
+            <div class="process-timeline-scroll" x-show="$store.lab.timeline.length">
+                <div class="process-timeline">
                 <template x-for="entry in $store.lab.timeline" :key="entry.index">
                     <button type="button"
                             class="process-timeline__item"
@@ -130,6 +120,7 @@
                             @click="$store.lab.selectSnapshot(entry.index)"
                             x-text="entry.label"></button>
                 </template>
+                </div>
             </div>
         </div>
 

@@ -55,6 +55,10 @@ export class AudioSessionLoop {
     this.frameIndex = 0;
   }
 
+  getSpectrumBars(count = 64): Float32Array {
+    return this.extractor?.getSpectrumBars(count) ?? new Float32Array(count);
+  }
+
   private scheduleTick(): void {
     cancelAnimationFrame(this.frameId);
 

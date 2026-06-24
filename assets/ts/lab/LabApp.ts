@@ -1,9 +1,8 @@
 import Alpine from 'alpinejs';
 import { AudioEngine } from '../audio/AudioEngine';
-import { DualAudioEngine } from '../audio/DualAudioEngine';
-import { MandalaRenderer } from '../geometry/MandalaRenderer';
+import { ThreeLabRenderer } from '../three/ThreeLabRenderer';
+import type { LabRenderer } from '../geometry/LabRenderer';
 import { AudioSessionLoop } from '../modes/AudioSessionLoop';
-import { DialogSessionLoop } from '../modes/DialogSessionLoop';
 import { ProcessMode } from '../modes/ProcessMode';
 import { GeometryPipeline, SILENCE_RMS } from '../geometry/GeometryPipeline';
 import type { AudioFrame } from '../modes/AudioSessionLoop';
@@ -14,7 +13,7 @@ import { PitchContour } from '../geometry/PitchContour';
 import { motifLabel } from '../geometry/MotifPicker';
 import { symmetryLabel } from '../geometry/SymmetryResolver';
 import { exportSessionFrames } from '../export/exportFrames';
-import type { DialogFrame, FeatureSnapshot, GeometryStyle, LabMode, TimelineEntry } from '../types';
+import type { FeatureSnapshot, GeometryStyle, LabMode, TimelineEntry } from '../types';
 
 const WARMUP_MS = 900;
 const STATUS_FLASH_MS = 1800;
@@ -60,20 +59,15 @@ type LabStore = {
 
 export class LabApp {
   private audio = new AudioEngine();
-  private dualAudio = new DualAudioEngine();
-  private renderer: MandalaRenderer | null = null;
+  private renderer: LabRenderer | null = null;
   private sessionLoop: AudioSessionLoop | null = null;
-  private dialogLoop: DialogSessionLoop | null = null;
   private processMode: ProcessMode | null = null;
   private voiceProfile = new VoiceProfile();
   private pitchContour = new PitchContour();
   private lastSnapshot: FeatureSnapshot | null = null;
-  private lastDialogFrame: DialogFrame | null = null;
   private frozenIndex: number | null = null;
   private workspaceEl: HTMLElement | null = null;
   private geometryPipeline = new GeometryPipeline();
-  private dialogPipelineLeft = new GeometryPipeline();
-  private dialogPipelineRight = new GeometryPipeline();
   private warmUpUntil = 0;
   private statusTimer = 0;
   private lastMotifFlash = 0;
@@ -81,7 +75,7 @@ export class LabApp {
   private readonly storeRef: LabStore = {
     onLabPage: false,
     mode: 'live',
-    geometryStyle: 'classic',
+    geometryStyle: 'flower',
     isActive: false,
     isPaused: false,
     isStarting: false,
@@ -96,7 +90,6 @@ export class LabApp {
     frequencyLabel: '—',
     symmetry: '6',
     silenceLabel: '—',
-    overlapLabel: '—',
     activeMotif: '—',
     timeline: [],
     activeSnapshot: null,
@@ -128,11 +121,10 @@ export class LabApp {
     Alpine.store('lab', this.storeRef);
     this.store.onLabPage = true;
 
-    this.renderer = new MandalaRenderer(canvas);
+    this.renderer = new ThreeLabRenderer(canvas);
     this.renderer.setStyle(this.store.geometryStyle);
     this.renderer.resize();
     this.sessionLoop = new AudioSessionLoop((frame) => this.onAudioFrame(frame));
-    this.dialogLoop = new DialogSessionLoop((frame) => this.onDialogFrame(frame));
     this.processMode = new ProcessMode(this.renderer);
     this.workspaceEl = document.querySelector('.lab__workspace');
 
@@ -142,6 +134,10 @@ export class LabApp {
     });
 
     window.addEventListener('resize', () => this.refreshCanvas());
+    document.addEventListener('sgl-theme-change', () => {
+      this.renderer?.refreshTheme?.();
+      this.refreshCanvas();
+    });
     document.addEventListener('fullscreenchange', () => {
       this.store.isFullscreen = document.fullscreenElement === this.workspaceEl;
       this.refreshCanvas();
@@ -161,8 +157,6 @@ export class LabApp {
         return 'Момент — звук → слои и узоры. Громче, выше, резче — разные формы.';
       case 'process':
         return 'Процесс — тот же движок, слепки на таймлайне. Стоп — итог и контур сессии.';
-      case 'dialog':
-        return 'Диалог — два микрофона, два полушария. Разрешите доступ дважды.';
       default:
         return '';
     }
@@ -197,33 +191,22 @@ export class LabApp {
 
     this.store.isStarting = true;
     this.geometryPipeline.reset();
-    this.dialogPipelineLeft.reset();
-    this.dialogPipelineRight.reset();
     this.warmUpUntil = performance.now() + WARMUP_MS;
     this.pitchContour.reset();
     this.processMode?.reset();
     this.processMode?.beginSession();
 
     try {
-      if (this.store.mode === 'dialog') {
-        this.store.status = 'Разрешите доступ к двум микрофонам…';
-        const { a, b } = await this.dualAudio.start();
-        this.dialogLoop?.start(a, b);
-      } else {
-        this.store.status = 'Подключаем микрофон…';
-        const analyser = await this.audio.start();
-        this.sessionLoop?.start(analyser);
-      }
+      this.store.status = 'Подключаем микрофон…';
+      const analyser = await this.audio.start();
+      this.sessionLoop?.start(analyser);
 
       this.store.isActive = true;
       this.store.isPaused = false;
       this.frozenIndex = null;
       this.store.activeSnapshot = null;
 
-      if (this.store.mode === 'dialog') {
-        this.voiceProfile.skipCalibration();
-        this.store.status = 'Слушаю…';
-      } else if (this.voiceProfile.needsCalibration()) {
+      if (this.voiceProfile.needsCalibration()) {
         this.voiceProfile.beginSessionCalibration();
         this.store.isCalibrating = true;
         this.store.calibrationProgress = 0;
@@ -247,24 +230,14 @@ export class LabApp {
     }
 
     if (this.store.isPaused) {
-      if (this.store.mode === 'dialog') {
-        await this.dualAudio.resume();
-        this.dialogLoop?.resume();
-      } else {
-        await this.audio.resume();
-        this.sessionLoop?.resume();
-      }
+      await this.audio.resume();
+      this.sessionLoop?.resume();
       this.store.isPaused = false;
       return;
     }
 
-    if (this.store.mode === 'dialog') {
-      this.dialogLoop?.pause();
-      await this.dualAudio.suspend();
-    } else {
-      this.sessionLoop?.pause();
-      await this.audio.suspend();
-    }
+    this.sessionLoop?.pause();
+    await this.audio.suspend();
     this.store.isPaused = true;
   }
 
@@ -274,9 +247,7 @@ export class LabApp {
     }
 
     this.sessionLoop?.stop();
-    this.dialogLoop?.stop();
     this.audio.stop();
-    this.dualAudio.stop();
     this.store.isActive = false;
     this.store.isPaused = false;
     this.store.status = '';
@@ -295,18 +266,12 @@ export class LabApp {
 
   private resetSession(): void {
     this.sessionLoop?.stop();
-    this.dialogLoop?.stop();
     this.audio.stop();
-    this.dualAudio.stop();
     this.pitchContour.reset();
     this.processMode?.reset();
     this.geometryPipeline.reset();
-    this.dialogPipelineLeft.reset();
-    this.dialogPipelineRight.reset();
-    this.pitchContour.reset();
     this.renderer?.clear();
     this.lastSnapshot = null;
-    this.lastDialogFrame = null;
     this.frozenIndex = null;
 
     this.store.isActive = false;
@@ -319,7 +284,6 @@ export class LabApp {
     this.store.frequencyLabel = '—';
     this.store.symmetry = '6';
     this.store.silenceLabel = '—';
-    this.store.overlapLabel = '—';
     this.store.timeline = [];
     this.store.activeSnapshot = null;
     this.store.isCalibrating = false;
@@ -341,41 +305,6 @@ export class LabApp {
     this.store.calibrationProgress = 100;
     this.store.status = 'Калибровка пропущена — слушаю…';
     this.flashStatus('Можно звучать — форма подстроится по ходу');
-  }
-
-  private onDialogFrame(frame: DialogFrame): void {
-    const normLeft = this.voiceProfile.normalizeFeatures(frame.left.features);
-    const normRight = this.voiceProfile.normalizeFeatures(frame.right.features);
-    const leftParams = this.dialogPipelineLeft.resolve(frame.left.features, normLeft);
-    const rightParams = this.dialogPipelineRight.resolve(frame.right.features, normRight);
-    const left: FeatureSnapshot = { ...frame.left, params: leftParams };
-    const right: FeatureSnapshot = { ...frame.right, params: rightParams };
-
-    this.lastDialogFrame = { left, right, overlap: frame.overlap };
-    this.lastSnapshot = left;
-    this.store.hasSession = true;
-    this.store.rms = (left.features.rms + right.features.rms) / 2;
-    this.store.frequencyLabel = `${Math.round(left.features.frequency)} / ${Math.round(right.features.frequency)} Hz`;
-    this.store.symmetry = symmetryLabel(leftParams.symmetry);
-    this.store.silenceLabel = formatSilenceLabel(left.features.silenceRatio, left.features.pauseMs);
-    this.store.overlapLabel = `${Math.round(frame.overlap * 100)}%`;
-
-    if (performance.now() < this.warmUpUntil && left.features.rms < SILENCE_RMS && right.features.rms < SILENCE_RMS) {
-      return;
-    }
-
-    if (this.store.status === 'Слушаю…') {
-      this.store.status = '';
-    }
-
-    this.voiceProfile.observe(left.features);
-    this.voiceProfile.observe(right.features);
-
-    if (!this.renderer || this.frozenIndex !== null) {
-      return;
-    }
-
-    this.renderer.renderDual(leftParams, rightParams, frame.overlap);
   }
 
   private onAudioFrame(frame: AudioFrame): void {
@@ -462,6 +391,9 @@ export class LabApp {
       }
     }
 
+    if (this.renderer.setSpectrum && this.sessionLoop) {
+      this.renderer.setSpectrum(this.sessionLoop.getSpectrumBars(64));
+    }
     this.renderer.render(liveSnapshot.params, liveSnapshot.pitchTrail ?? []);
   }
 
@@ -482,6 +414,15 @@ export class LabApp {
     }
 
     this.store.timeline = entries;
+    requestAnimationFrame(() => this.scrollTimelineToEnd());
+  }
+
+  private scrollTimelineToEnd(): void {
+    const scroller = document.querySelector('.process-timeline-scroll');
+    if (!(scroller instanceof HTMLElement)) {
+      return;
+    }
+    scroller.scrollLeft = scroller.scrollWidth;
   }
 
   private setMode(mode: LabMode): void {
@@ -490,18 +431,8 @@ export class LabApp {
     if (mode === 'live') {
       this.frozenIndex = null;
       this.store.activeSnapshot = null;
-      if (this.lastSnapshot && !this.lastDialogFrame) {
+      if (this.lastSnapshot) {
         this.renderer?.render(this.lastSnapshot.params, this.lastSnapshot.pitchTrail ?? []);
-      }
-      return;
-    }
-
-    if (mode === 'dialog') {
-      this.frozenIndex = null;
-      this.store.activeSnapshot = null;
-      if (this.lastDialogFrame && this.renderer) {
-        const { left, right, overlap } = this.lastDialogFrame;
-        this.renderer.renderDual(leftParams, rightParams, overlap);
       }
       return;
     }
@@ -512,7 +443,7 @@ export class LabApp {
       if (last) {
         this.renderer?.renderSnapshot(last);
       }
-    } else if (this.frozenIndex === null && this.lastSnapshot && !this.lastDialogFrame) {
+    } else if (this.frozenIndex === null && this.lastSnapshot) {
       this.renderer?.render(this.lastSnapshot.params, this.lastSnapshot.pitchTrail ?? []);
     }
   }
@@ -521,11 +452,6 @@ export class LabApp {
     this.store.geometryStyle = style;
     this.renderer?.setStyle(style);
     if (this.frozenIndex !== null) {
-      return;
-    }
-    if (this.store.mode === 'dialog' && this.lastDialogFrame && this.renderer) {
-      const { left, right, overlap } = this.lastDialogFrame;
-      this.renderer.renderDual(left.params, right.params, overlap);
       return;
     }
     if (this.lastSnapshot) {
@@ -565,12 +491,6 @@ export class LabApp {
       } else {
         this.processMode?.show(this.frozenIndex);
       }
-      return;
-    }
-
-    if (this.lastDialogFrame) {
-      const { left, right, overlap } = this.lastDialogFrame;
-      this.renderer.renderDual(left.params, right.params, overlap);
       return;
     }
 
@@ -682,6 +602,7 @@ export function createLabShell(): { theme: string; toggleTheme: () => void } {
     toggleTheme(): void {
       this.theme = this.theme === 'theme-dark' ? 'theme-light' : 'theme-dark';
       localStorage.setItem('sgl-theme', this.theme);
+      document.dispatchEvent(new CustomEvent('sgl-theme-change'));
     },
   };
 }

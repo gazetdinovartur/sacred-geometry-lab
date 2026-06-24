@@ -1,11 +1,12 @@
 import paper from 'paper';
+import type { LabRenderer } from './LabRenderer';
 import type { FeatureSnapshot, GeometryParams, PitchPoint } from '../types';
 import { drawSacredOverlay } from './sacred/SacredGeometry';
 
 const REF_RADIUS = 200;
 
 /** Слои мандалы: один акустический параметр — один визуальный слой. */
-export class MandalaRenderer {
+export class MandalaRenderer implements LabRenderer {
   private rotation = 0;
   private group: paper.Group | null = null;
   private breathCircle: paper.Path.Circle | null = null;

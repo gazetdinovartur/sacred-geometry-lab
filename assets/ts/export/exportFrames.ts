@@ -1,11 +1,11 @@
 import JSZip from 'jszip';
-import type { MandalaRenderer } from '../geometry/MandalaRenderer';
+import type { LabRenderer } from '../geometry/LabRenderer';
 import type { FeatureSnapshot } from '../types';
 import { triggerDownloadBlob } from './exportFiles';
 
 /** Покадровый экспорт Process → ZIP с PNG. */
 export async function exportSessionFrames(
-  renderer: MandalaRenderer,
+  renderer: LabRenderer,
   snapshots: FeatureSnapshot[],
 ): Promise<void> {
   if (snapshots.length === 0) {

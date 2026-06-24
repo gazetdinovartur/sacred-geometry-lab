@@ -150,4 +150,22 @@ export class FeatureExtractor {
     }
     return Math.min(peaks, 8);
   }
+
+  /** Нормализованные полоски спектра для 3D-кольца (0…1). */
+  getSpectrumBars(barCount: number): Float32Array {
+    this.analyser.getByteFrequencyData(this.freqData as Uint8Array<ArrayBuffer>);
+    const bars = new Float32Array(barCount);
+    const binSize = this.freqData.length / barCount;
+    for (let i = 0; i < barCount; i += 1) {
+      let sum = 0;
+      const start = Math.floor(i * binSize);
+      const end = Math.floor((i + 1) * binSize);
+      for (let j = start; j < end; j += 1) {
+        sum += this.freqData[j];
+      }
+      const span = Math.max(end - start, 1);
+      bars[i] = sum / (span * 255);
+    }
+    return bars;
+  }
 }

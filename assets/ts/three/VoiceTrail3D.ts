@@ -48,7 +48,7 @@ export function rebuildVoiceTrail(
     const mat = new THREE.LineBasicMaterial({
       color: voiceColor(baseHue),
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.62,
       depthWrite: false,
     });
     const line = new THREE.Line(geo, mat);
@@ -89,7 +89,7 @@ export function updateVoiceHead(
   head.geometry.dispose();
   head.geometry = new THREE.BufferGeometry().setFromPoints(pts);
   (head.material as THREE.LineBasicMaterial).color = voiceColor(baseHue);
-  (head.material as THREE.LineBasicMaterial).opacity = 0.85;
+  (head.material as THREE.LineBasicMaterial).opacity = 0.98;
 }
 
 function addHead(group: THREE.Group, pos: THREE.Vector3, baseHue: number, patternR: number): void {
@@ -104,7 +104,7 @@ function addHead(group: THREE.Group, pos: THREE.Vector3, baseHue: number, patter
     new THREE.LineBasicMaterial({
       color: voiceColor(baseHue),
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.98,
       depthWrite: false,
     }),
   );

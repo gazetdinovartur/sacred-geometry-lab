@@ -85,14 +85,32 @@ export class VoiceProfile {
   }
 
   addCalibrationSample(features: AudioFeatures, now = performance.now()): boolean {
-    this.collectBounds(features);
+    this.ingestCalibrationSample(features);
+    return this.completeCalibrationIfDue(now);
+  }
 
+  /** Только сбор границ — без проверки времени. */
+  ingestCalibrationSample(features: AudioFeatures): void {
+    if (!this.calibrating) {
+      return;
+    }
+    this.collectBounds(features);
+  }
+
+  /** Завершить по таймеру (~12 сек). */
+  completeCalibrationIfDue(now = performance.now()): boolean {
+    if (!this.calibrating) {
+      return false;
+    }
     if (now - this.calibrationStarted >= CALIBRATION_DURATION_MS) {
       this.finishCalibration();
       return true;
     }
-
     return false;
+  }
+
+  abortCalibration(): void {
+    this.calibrating = false;
   }
 
   skipCalibration(): void {
@@ -123,6 +141,10 @@ export class VoiceProfile {
   }
 
   normalizeFeatures(features: AudioFeatures): NormalizedFeatures {
+    if (this.calibrating) {
+      return this.normalizeWhileCalibrating(features);
+    }
+
     const f0Range = Math.max(this.f0Max - this.f0Min, 50);
     const rmsRange = Math.max(this.rmsMax - this.rmsMin, 0.018);
     const centroidRange = Math.max(this.centroidMax - this.centroidMin, 350);
@@ -138,6 +160,22 @@ export class VoiceProfile {
       rms,
       pitch,
       centroid: clamp((features.spectralCentroid - this.centroidMin) / centroidRange, 0, 1),
+      flux: clamp(features.spectralFlux * 6, 0, 1),
+      harmonics: clamp(features.harmonicCount / 8, 0, 1),
+    };
+  }
+
+  private normalizeWhileCalibrating(features: AudioFeatures): NormalizedFeatures {
+    const rmsMin = this.rmsMin === Infinity ? 0.003 : this.rmsMin;
+    const rmsMax = Math.max(this.rmsMax, features.rms, 0.05);
+    const range = Math.max(rmsMax - rmsMin, 0.02);
+    const rmsLinear = clamp((features.rms - rmsMin) / range, 0, 1);
+    const rms = clamp(0.06 + Math.pow(rmsLinear, 0.52) * 0.94, 0, 1);
+
+    return {
+      rms,
+      pitch: 0.5,
+      centroid: clamp(features.spectralCentroid / 4000, 0, 1),
       flux: clamp(features.spectralFlux * 6, 0, 1),
       harmonics: clamp(features.harmonicCount / 8, 0, 1),
     };
@@ -164,6 +202,39 @@ export class VoiceProfile {
     return this.hash();
   }
 
+  /** Калиброванный диапазон громкости (сырой RMS). */
+  getRmsReference(): { min: number; max: number } {
+    if (this.calibrating) {
+      const min = this.rmsMin === Infinity ? 0.003 : this.rmsMin;
+      const max = Math.max(this.rmsMax, min + 0.04, 0.06);
+      return { min, max };
+    }
+
+    const min = this.rmsMin === Infinity ? 0.012 : this.rmsMin;
+    const max = this.rmsMax === Infinity || this.rmsMax <= min + 0.008
+      ? 0.22
+      : this.rmsMax;
+    return { min, max: Math.max(max, min + 0.025) };
+  }
+
+  /**
+   * Множитель для спектральных сегментов: при макс. громкости калибровки кольцо заполняется сильнее.
+   * Во время калибровки опирается на текущий running max.
+   */
+  spectrumGain(rawRms: number): number {
+    const { min } = this.getRmsReference();
+    let max = this.rmsMax;
+    if (this.calibrating || max === Infinity || max <= min + 0.008) {
+      max = Math.max(max === Infinity ? 0 : max, rawRms, 0.06);
+    } else {
+      max = Math.max(max, min + 0.025);
+    }
+
+    const floor = min + (max - min) * 0.06;
+    const t = clamp((rawRms - floor) / (max - floor), 0, 1);
+    return 0.42 + Math.pow(t, 0.52) * 1.35;
+  }
+
   reset(): void {
     this.sampleCount = 0;
     this.calibrated = false;
@@ -181,8 +252,21 @@ export class VoiceProfile {
 
   private finishCalibration(): void {
     if (this.f0Min === Infinity) {
-      this.skipCalibration();
-      return;
+      this.f0Min = 120;
+      this.f0Max = Math.max(this.f0Max, 280);
+    }
+    if (this.f0Max <= this.f0Min + 20) {
+      this.f0Max = this.f0Min + 120;
+    }
+    if (this.rmsMin === Infinity) {
+      this.rmsMin = 0.012;
+    }
+    if (this.rmsMax <= this.rmsMin + 0.008) {
+      this.rmsMax = Math.max(this.rmsMin + 0.08, 0.12);
+    }
+    if (this.centroidMin === Infinity) {
+      this.centroidMin = 600;
+      this.centroidMax = 3200;
     }
     this.calibrating = false;
     this.calibrated = true;

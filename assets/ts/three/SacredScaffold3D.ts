@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import type { GeometryStyle } from '../types';
-import { basicMat } from './threeColors';
 
 /** Узел Цветка жизни — центр и радиус одного круга. */
 export type FlowerNode = {
@@ -12,36 +11,7 @@ export type FlowerNode = {
 
 const CIRCLE_SEGMENTS = 160;
 
-/** Семь кругов Seed / Flower of Life (1 центр + 6 вокруг). */
-export function flowerOfLifeNodes(patternRadius: number): FlowerNode[] {
-  const petalR = patternRadius / 3;
-  const nodes: FlowerNode[] = [{ x: 0, y: 0, r: petalR, index: 0 }];
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI / 3) * i;
-    nodes.push({
-      x: Math.cos(angle) * petalR,
-      y: Math.sin(angle) * petalR,
-      r: petalR,
-      index: i + 1,
-    });
-  }
-  return nodes;
-}
-
-/** Внешнее кольцо Цветка — 6 кругов второго венца (периферия). */
-export function outerFlowerNodes(patternRadius: number): FlowerNode[] {
-  const petalR = patternRadius / 3;
-  const nodes: FlowerNode[] = [];
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI / 3) * i;
-    const cx = Math.cos(angle) * petalR * 2;
-    const cy = Math.sin(angle) * petalR * 2;
-    nodes.push({ x: cx, y: cy, r: petalR, index: 10 + i });
-  }
-  return nodes;
-}
-
-/** Тонкая линия-круг (LineLoop), без заливки и «шестигранников». */
+/** Тонкая линия-круг — воздушный контур, не «труба». */
 export function circleLineLoop(
   cx: number,
   cy: number,
@@ -65,13 +35,33 @@ export function circleLineLoop(
   return new THREE.LineLoop(geo, mat);
 }
 
-/** Граница мандалы — тонкое периферийное кольцо. */
-export function boundaryRing(
-  radius: number,
-  color: THREE.Color,
-  opacity: number,
-): THREE.LineLoop {
-  return circleLineLoop(0, 0, radius, color, opacity, -0.05);
+/** Семь кругов Seed / Flower of Life (1 центр + 6 вокруг). */
+export function flowerOfLifeNodes(patternRadius: number): FlowerNode[] {
+  const petalR = patternRadius / 3;
+  const nodes: FlowerNode[] = [{ x: 0, y: 0, r: petalR, index: 0 }];
+  for (let i = 0; i < 6; i += 1) {
+    const angle = (Math.PI / 3) * i;
+    nodes.push({
+      x: Math.cos(angle) * petalR,
+      y: Math.sin(angle) * petalR,
+      r: petalR,
+      index: i + 1,
+    });
+  }
+  return nodes;
+}
+
+/** Внешнее кольцо Цветка — 6 кругов второго венца. */
+export function outerFlowerNodes(patternRadius: number): FlowerNode[] {
+  const petalR = patternRadius / 3;
+  const nodes: FlowerNode[] = [];
+  for (let i = 0; i < 6; i += 1) {
+    const angle = (Math.PI / 3) * i;
+    const cx = Math.cos(angle) * petalR * 2;
+    const cy = Math.sin(angle) * petalR * 2;
+    nodes.push({ x: cx, y: cy, r: petalR, index: 10 + i });
+  }
+  return nodes;
 }
 
 export function disposeGroup(group: THREE.Group): void {
@@ -109,7 +99,7 @@ export function scaffoldBuildKey(
   return `${style}-${Math.round(patternRadius)}`;
 }
 
-/** Каркас: только контуры кругов + периферия. Без vesica-fill. */
+/** Каркас: тонкие контуры. Граница-эквалайзер — отдельно в ThreeLabRenderer. */
 export function buildScaffoldStructure(
   group: THREE.Group,
   haloGroup: THREE.Group,
@@ -125,7 +115,7 @@ export function buildScaffoldStructure(
 
   nodes.forEach((node, i) => {
     const z = i === 0 ? 0 : 0.04 + i * 0.018;
-    const ring = circleLineLoop(node.x, node.y, node.r, lineColor, 0.55, z);
+    const ring = circleLineLoop(node.x, node.y, node.r, lineColor, 0.58, z);
     ring.name = `circle-${node.index}`;
     group.add(ring);
   });
@@ -137,10 +127,6 @@ export function buildScaffoldStructure(
       haloGroup.add(ring);
     });
   }
-
-  const ring = boundaryRing(patternRadius * 1.02, haloColor, 0.32);
-  ring.name = 'boundary';
-  haloGroup.add(ring);
 
   return nodes;
 }

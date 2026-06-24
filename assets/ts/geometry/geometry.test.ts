@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { symmetryFromRhythm, blendGeometryParams } from '../geometry/SymmetryResolver';
 import { applySilenceFade } from '../geometry/SilenceMapper';
 import { mapFeaturesToGeometry } from '../geometry/MappingEngine';
-import { VoiceProfile } from '../audio/VoiceProfile';
+import { VoiceProfile, CALIBRATION_DURATION_MS } from '../audio/VoiceProfile';
+import { CalibrationRunner } from '../lab/CalibrationRunner';
+import { pngBytesFromDataUrl, sanitizeGeometryParams } from '../export/exportValidation';
 import type { AudioFeatures } from '../types';
 
 describe('SymmetryResolver', () => {
@@ -64,6 +66,106 @@ describe('MappingEngine', () => {
     const l = mapFeaturesToGeometry(sampleFeatures(), loud);
     expect(l.radius).toBeGreaterThan(q.radius);
     expect(l.rays).toBeGreaterThanOrEqual(q.rays);
+  });
+});
+
+describe('VoiceProfile calibration', () => {
+  it('normalizes safely while bounds are still open', () => {
+    const profile = new VoiceProfile();
+    profile.beginSessionCalibration();
+    const norm = profile.normalizeFeatures({
+      rms: 0.08,
+      frequency: 0,
+      spectralCentroid: 1200,
+      spectralFlux: 0.02,
+      harmonicCount: 3,
+      silenceRatio: 0,
+      pauseMs: 0,
+      recentOnsets: 0,
+      rhythmSymmetry: 4,
+    });
+    expect(Number.isFinite(norm.rms)).toBe(true);
+    expect(norm.rms).toBeGreaterThan(0.05);
+  });
+
+  it('finishes even without detected pitch', () => {
+    const profile = new VoiceProfile();
+    profile.beginSessionCalibration();
+    profile.addCalibrationSample({
+      rms: 0.1,
+      frequency: 0,
+      spectralCentroid: 1400,
+      spectralFlux: 0.03,
+      harmonicCount: 2,
+      silenceRatio: 0,
+      pauseMs: 0,
+      recentOnsets: 0,
+      rhythmSymmetry: 4,
+    });
+    profile.skipCalibration();
+    expect(profile.isCalibrated()).toBe(true);
+  });
+});
+
+describe('CalibrationRunner', () => {
+  it('advances progress on timer without audio frames', () => {
+    vi.useFakeTimers();
+    const profile = new VoiceProfile();
+    const runner = new CalibrationRunner(profile);
+    const progress: number[] = [];
+    let completed = false;
+
+    runner.start(
+      (ui) => progress.push(ui.progress),
+      () => { completed = true; },
+    );
+
+    expect(progress[0]).toBe(0);
+    vi.advanceTimersByTime(6000);
+    expect(progress.at(-1)).toBeGreaterThan(40);
+    vi.advanceTimersByTime(CALIBRATION_DURATION_MS);
+    expect(completed).toBe(true);
+    expect(profile.isCalibrated()).toBe(true);
+    vi.useRealTimers();
+  });
+});
+
+describe('export validation', () => {
+  it('rejects empty PNG data URLs', () => {
+    expect(() => pngBytesFromDataUrl('data:image/png;base64,')).toThrow();
+    expect(() => pngBytesFromDataUrl('data:,')).toThrow();
+  });
+
+  it('sanitizes invalid geometry params', () => {
+    const params = sanitizeGeometryParams({
+      radius: NaN,
+      rays: Infinity,
+      rotationSpeed: 0,
+      hue: NaN,
+      opacity: NaN,
+      symmetry: 0,
+      breathRing: 0,
+      lineWidth: NaN,
+      waveAmplitude: 0,
+      spiralTurns: 0,
+      dotCount: 0,
+      elementCount: 0,
+      pitchAngle: 0,
+    });
+    expect(Number.isFinite(params.radius)).toBe(true);
+    expect(params.radius).toBeGreaterThan(40);
+    expect(params.opacity).toBeGreaterThanOrEqual(0.35);
+  });
+});
+
+describe('VoiceProfile spectrum gain', () => {
+  it('scales up toward calibrated max loudness', () => {
+    const profile = new VoiceProfile();
+    profile.skipCalibration();
+    const quiet = profile.spectrumGain(0.02);
+    const loud = profile.spectrumGain(0.2);
+    expect(loud).toBeGreaterThan(quiet);
+    expect(loud).toBeGreaterThan(0.85);
   });
 });
 

@@ -1,12 +1,17 @@
 import JSZip from 'jszip';
-import type { LabRenderer } from '../geometry/LabRenderer';
-import type { FeatureSnapshot } from '../types';
+import type { FeatureSnapshot, GeometryStyle } from '../types';
+import {
+  exportMandalaPng,
+  exportMandalaSvg,
+  sessionReportText,
+} from './mandalaExport';
 import { triggerDownloadBlob } from './exportFiles';
+import { pngBytesFromDataUrl } from './exportValidation';
 
-/** Покадровый экспорт Process → ZIP с PNG. */
+/** Покадровый экспорт Process → ZIP с мандалами и отчётом. */
 export async function exportSessionFrames(
-  renderer: LabRenderer,
   snapshots: FeatureSnapshot[],
+  style: GeometryStyle,
 ): Promise<void> {
   if (snapshots.length === 0) {
     return;
@@ -15,41 +20,48 @@ export async function exportSessionFrames(
   const zip = new JSZip();
 
   for (let i = 0; i < snapshots.length; i += 1) {
-    renderer.renderSnapshot(snapshots[i]);
-    await waitFrames(3);
-    const png = pngFromDataUrl(renderer.exportPng());
-    zip.file(`frame-${String(i + 1).padStart(3, '0')}.png`, png);
+    const snap = snapshots[i];
+    const png = pngBytesFromDataUrl(exportMandalaPng(snap, style));
+    const svg = exportMandalaSvg(snap, style);
+    const stem = `frame-${String(i + 1).padStart(3, '0')}`;
+    zip.file(`${stem}.png`, png);
+    zip.file(`${stem}.svg`, svg);
   }
 
-  renderer.renderComposite(snapshots);
-  await waitFrames(3);
-  zip.file('frame-000-itog.png', pngFromDataUrl(renderer.exportPng()));
+  const composite = blendSnapshots(snapshots);
+  zip.file('frame-000-itog.png', pngBytesFromDataUrl(exportMandalaPng(composite, style)));
+  zip.file('frame-000-itog.svg', exportMandalaSvg(composite, style));
+  zip.file('session-report.txt', sessionReportText(snapshots));
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-  triggerDownloadBlob(blob, 'mandala-frames.zip');
+  triggerDownloadBlob(blob, 'sgl-session.zip');
 }
 
-function pngFromDataUrl(dataUrl: string): Uint8Array {
-  const [, base64] = dataUrl.split(',');
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
+function blendSnapshots(snapshots: FeatureSnapshot[]): FeatureSnapshot {
+  const last = snapshots[snapshots.length - 1];
+  const mergedTrail = snapshots.flatMap((s) => s.pitchTrail ?? []);
+  const avgSpectrum = averageSpectrum(snapshots);
+
+  return {
+    ...last,
+    label: 'Итог',
+    pitchTrail: mergedTrail,
+    spectrum: avgSpectrum,
+  };
+}
+
+function averageSpectrum(snapshots: FeatureSnapshot[]): number[] | undefined {
+  const withSpectrum = snapshots.filter((s) => s.spectrum?.length);
+  if (withSpectrum.length === 0) {
+    return undefined;
   }
-  return bytes;
-}
 
-function waitFrames(count: number): Promise<void> {
-  return new Promise((resolve) => {
-    let left = count;
-    const step = (): void => {
-      left -= 1;
-      if (left <= 0) {
-        resolve();
-        return;
-      }
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
+  const len = withSpectrum[0].spectrum!.length;
+  const avg = new Array(len).fill(0);
+  withSpectrum.forEach((snap) => {
+    snap.spectrum!.forEach((v, i) => {
+      avg[i] += v;
+    });
   });
+  return avg.map((v) => v / withSpectrum.length);
 }

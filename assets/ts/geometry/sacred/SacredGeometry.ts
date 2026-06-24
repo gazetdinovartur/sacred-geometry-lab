@@ -52,16 +52,16 @@ function drawFlowerOfLife(
     group.addChild(new paper.Path.Circle({
       center: c,
       radius: petalR,
-      strokeColor: color(params.hue, params.opacity * 0.5),
-      strokeWidth: params.lineWidth * 0.45,
+      strokeColor: color(params.hue, params.opacity * 0.62),
+      strokeWidth: Math.max(params.lineWidth * 0.95, 1.05),
       fillColor: null,
     }));
   }
   group.addChild(new paper.Path.Circle({
     center,
     radius: petalR,
-    strokeColor: color(params.hue + 20, params.opacity * 0.55),
-    strokeWidth: params.lineWidth * 0.45,
+    strokeColor: color(params.hue + 20, params.opacity * 0.68),
+    strokeWidth: Math.max(params.lineWidth * 1.05, 1.15),
     fillColor: null,
   }));
 }
@@ -79,8 +79,8 @@ function drawSeedOfLife(
     group.addChild(new paper.Path.Circle({
       center: c,
       radius,
-      strokeColor: color(params.hue + i * 8, params.opacity * 0.45),
-      strokeWidth: params.lineWidth * 0.4,
+      strokeColor: color(params.hue + i * 8, params.opacity * 0.58),
+      strokeWidth: Math.max(params.lineWidth * 0.9, 1.0),
       fillColor: null,
     }));
   }
@@ -98,8 +98,8 @@ function drawMetatron(
   group.addChild(new paper.Path.Circle({
     center,
     radius: inner,
-    strokeColor: color(params.hue, params.opacity * 0.6),
-    strokeWidth: params.lineWidth * 0.5,
+    strokeColor: color(params.hue, params.opacity * 0.72),
+    strokeWidth: Math.max(params.lineWidth * 0.95, 1.05),
     fillColor: null,
   }));
 
@@ -109,14 +109,14 @@ function drawMetatron(
     group.addChild(new paper.Path.Line({
       from: center,
       to: outer,
-      strokeColor: color(params.hue + 15, params.opacity * 0.4),
-      strokeWidth: params.lineWidth * 0.35,
+      strokeColor: color(params.hue + 15, params.opacity * 0.55),
+      strokeWidth: Math.max(params.lineWidth * 0.82, 0.95),
     }));
     group.addChild(new paper.Path.Circle({
       center: outer,
       radius: inner * 0.35,
-      strokeColor: color(params.hue + 30, params.opacity * 0.35),
-      strokeWidth: params.lineWidth * 0.3,
+      strokeColor: color(params.hue + 30, params.opacity * 0.5),
+      strokeWidth: Math.max(params.lineWidth * 0.75, 0.9),
       fillColor: null,
     }));
   }
@@ -142,8 +142,8 @@ function drawMerkaba(
       }
     }
     path.closed = true;
-    path.strokeColor = color(params.hue + (flip ? 40 : 0), params.opacity * 0.55);
-    path.strokeWidth = params.lineWidth * 0.55;
+    path.strokeColor = color(params.hue + (flip ? 40 : 0), params.opacity * 0.68);
+    path.strokeWidth = Math.max(params.lineWidth * 0.92, 1.0);
     return path;
   };
 
@@ -173,7 +173,7 @@ function drawYantra(
     }
   }
   path.closed = true;
-  path.strokeColor = color(params.hue - 10, params.opacity * 0.65);
-  path.strokeWidth = params.lineWidth * 0.6;
+  path.strokeColor = color(params.hue - 10, params.opacity * 0.75);
+  path.strokeWidth = Math.max(params.lineWidth * 0.95, 1.05);
   group.addChild(path);
 }

@@ -63,19 +63,23 @@ export class AudioSessionLoop {
     cancelAnimationFrame(this.frameId);
 
     const tick = (): void => {
-      if (!this.extractor || this.paused) {
-        return;
+      if (!this.paused && this.extractor) {
+        try {
+          const features = this.extractor.extract();
+          this.frameIndex += 1;
+          this.onFrame({
+            timestamp: performance.now(),
+            features,
+            label: `Кадр ${this.frameIndex}`,
+          });
+        } catch (err) {
+          console.error('[AudioSessionLoop] frame error', err);
+        }
       }
 
-      const features = this.extractor.extract();
-      this.frameIndex += 1;
-      this.onFrame({
-        timestamp: performance.now(),
-        features,
-        label: `Кадр ${this.frameIndex}`,
-      });
-
-      this.frameId = requestAnimationFrame(tick);
+      if (!this.paused && this.analyser) {
+        this.frameId = requestAnimationFrame(tick);
+      }
     };
 
     this.frameId = requestAnimationFrame(tick);

@@ -14,7 +14,7 @@ export function applySilenceFade(base: GeometryParams, pauseMs: number, silenceR
     ...base,
     rotationSpeed: base.rotationSpeed * (1 - fade * 0.75),
     breathRing: breath,
-    opacity: Math.max(base.opacity * (1 - fade * 0.5), 0.14),
+    opacity: Math.max(base.opacity * (1 - fade * 0.35), 0.42),
     radius: Math.max(base.radius * (1 - fade * 0.12) + breath * 10, base.radius * 0.55),
   };
 }

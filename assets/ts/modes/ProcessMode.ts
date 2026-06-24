@@ -77,6 +77,7 @@ export class ProcessMode {
       params,
       label: 'Итог',
       pitchTrail: fullPitchTrail,
+      spectrum: averageSpectrum(this.snapshots),
     };
 
     return this.composite;
@@ -112,4 +113,20 @@ export class ProcessMode {
   getComposite(): FeatureSnapshot | null {
     return this.composite;
   }
+}
+
+function averageSpectrum(snapshots: FeatureSnapshot[]): number[] | undefined {
+  const withSpectrum = snapshots.filter((s) => s.spectrum?.length);
+  if (withSpectrum.length === 0) {
+    return undefined;
+  }
+
+  const len = withSpectrum[0].spectrum!.length;
+  const avg = new Array(len).fill(0);
+  withSpectrum.forEach((snap) => {
+    snap.spectrum!.forEach((v, i) => {
+      avg[i] += v;
+    });
+  });
+  return avg.map((v) => v / withSpectrum.length);
 }

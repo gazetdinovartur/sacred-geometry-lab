@@ -2,7 +2,7 @@
 
 > **Домен:** [lab.arturlun.ru](https://lab.arturlun.ru)  
 > **Автор:** [Артур Лун](https://arturlun.ru)  
-> **Статус:** спецификация v1.1 — уточнения по структуре, стеку, тишине
+> **Статус:** спецификация v1.1 + **реализация v1.2** — см. [docs/VOICE-MANDALA.md](docs/VOICE-MANDALA.md)
 
 ---
 

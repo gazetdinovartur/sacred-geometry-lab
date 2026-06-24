@@ -20,7 +20,7 @@ export function accentColor(): THREE.Color {
 }
 
 export function readCanvasBg(): THREE.Color {
-  const wrap = document.querySelector('.mandala-wrap');
+  const wrap = document.querySelector('.mandala-frame') ?? document.querySelector('.lab__stage');
   const source = wrap ?? document.documentElement;
   const raw = getComputedStyle(source).getPropertyValue('--canvas-bg').trim()
     || getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim()
@@ -37,7 +37,6 @@ export function isLightCanvas(): boolean {
   return bg.r * 0.299 + bg.g * 0.587 + bg.b * 0.114 > 0.55;
 }
 
-/** Оттенок от hue, но опирается на --line — контраст на обеих темах. */
 export function mandalaColor(hue: number, tint = 0.22): THREE.Color {
   const base = lineBaseColor();
   base.getHSL(hsl);
@@ -48,11 +47,16 @@ export function mandalaColor(hue: number, tint = 0.22): THREE.Color {
 export function voiceColor(hue: number): THREE.Color {
   const accent = accentColor();
   accent.getHSL(hsl);
-  const t = new THREE.Color().setHSL((hue % 360) / 360, 0.58, hsl.l);
-  return accent.clone().lerp(t, 0.38);
+  const light = isLightCanvas();
+  const t = new THREE.Color().setHSL(
+    (hue % 360) / 360,
+    light ? 0.52 : 0.58,
+    light ? hsl.l : Math.min(hsl.l + 0.06, 0.78),
+  );
+  return accent.clone().lerp(t, light ? 0.42 : 0.48);
 }
 
-/** Спокойная палитра — чистый акцент, без грязных серых наслоений. */
+/** Воздушная палитра — тонкие линии, мягкое свечение на тёмном. */
 export function scaffoldPalette(hue: number): {
   line: THREE.Color;
   halo: THREE.Color;
@@ -64,16 +68,18 @@ export function scaffoldPalette(hue: number): {
   const accent = accentColor();
   const light = isLightCanvas();
   const line = light
-    ? new THREE.Color('#524878')
+    ? new THREE.Color('#3a2d58')
     : new THREE.Color('#ddd6f0');
-  const halo = accent.clone().lerp(line, light ? 0.35 : 0.25);
+  const halo = light
+    ? accent.clone().lerp(line, 0.2)
+    : accent.clone().lerp(new THREE.Color('#c8b8f0'), 0.35);
   return {
     line,
     halo,
     voice: voiceColor(hue),
     core: accent.clone(),
-    breath: accent.clone().lerp(line, 0.4),
-    petal: accent.clone().lerp(voiceColor(hue), 0.45),
+    breath: accent.clone().lerp(line, 0.35),
+    petal: accent.clone().lerp(voiceColor(hue), 0.4),
   };
 }
 

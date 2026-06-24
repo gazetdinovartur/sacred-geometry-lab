@@ -1,20 +1,16 @@
 import * as THREE from 'three';
 import type { LabRenderer } from '../geometry/LabRenderer';
-import type { FeatureSnapshot, GeometryParams, GeometryStyle } from '../types';
-import {
-  buildScaffoldStructure,
-  flowerOfLifeNodes,
-  scaffoldBuildKey,
-} from './SacredScaffold3D';
-import {
-  readCanvasBg,
-  scaffoldPalette,
-} from './threeColors';
+import type { FeatureSnapshot, GeometryParams, GeometryStyle, PitchPoint } from '../types';
+import { BloomComposer } from './BloomComposer';
+import { CymaticPlate3D } from './CymaticPlate3D';
+import { FlowerContour3D } from './FlowerContour3D';
+import { SpectrumRing3D } from './SpectrumRing3D';
+import { scaffoldPalette } from './threeColors';
 
-const REF_RADIUS = 200;
 const SPECTRUM_BARS = 48;
-const SPECTRUM_SECTORS = 6;
 const LERP = 0.14;
+const AMBIENT_BASE_R = 220;
+const CORE_BASE_R = 130;
 
 function defaultParams(): GeometryParams {
   return {
@@ -53,88 +49,67 @@ function lerpParams(a: GeometryParams, b: GeometryParams, t: number): GeometryPa
   };
 }
 
-type ScaffoldLayers = {
-  container: THREE.Group;
-  circles: THREE.Group;
-  halo: THREE.Group;
-  breath: THREE.LineLoop;
-  lastBuildKey: string;
-  nodes: ReturnType<typeof flowerOfLifeNodes>;
-};
-
-/** Sacred-only: один каркас Цветка, звук меняет opacity/цвет/движение — без новых фигур. */
+/**
+ * Два слоя: ambient cymatics на весь экран + точный центр в круге
+ * (core cymatics, контур Цветка, EQ).
+ */
 export class ThreeLabRenderer implements LabRenderer {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(36, 1, 1, 4000);
+  private readonly camera = new THREE.PerspectiveCamera(36, 1, 1, 5000);
   private readonly webgl: THREE.WebGLRenderer;
-  private readonly root = new THREE.Group();
-  private readonly tilt = new THREE.Group();
+  private readonly composer: BloomComposer;
+  private readonly focus = new THREE.Group();
+  private readonly ambientPlate: CymaticPlate3D;
+  private readonly corePlate: CymaticPlate3D;
+  private readonly flower = new FlowerContour3D();
+  private readonly eqRing: SpectrumRing3D;
   private readonly dualLeft = new THREE.Group();
   private readonly dualRight = new THREE.Group();
-  private readonly overlapGlow = new THREE.Mesh(
-    new THREE.CircleGeometry(1, 48),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
-  );
 
   private targetParams = defaultParams();
   private displayParams = defaultParams();
-  private dualLeftParams = defaultParams();
-  private dualRightParams = defaultParams();
-  private style: GeometryStyle = 'flower';
   private rotation = 0;
   private frozenRotation: number | undefined;
   private mode: 'single' | 'dual' = 'single';
-  private layers!: ScaffoldLayers;
-  private leftLayers!: ScaffoldLayers;
-  private rightLayers!: ScaffoldLayers;
 
   private spectrumTarget = new Float32Array(SPECTRUM_BARS);
   private spectrumDisplay = new Float32Array(SPECTRUM_BARS);
   private rafId = 0;
-  private size = 800;
+  private sizeW = 800;
+  private sizeH = 620;
   private time = 0;
+  private cameraZ = 520;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.webgl = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      alpha: false,
+      alpha: true,
       powerPreference: 'high-performance',
     });
     this.webgl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.webgl.outputColorSpace = THREE.SRGBColorSpace;
     this.webgl.toneMapping = THREE.NoToneMapping;
 
-    this.layers = this.createLayerStack();
-    this.leftLayers = this.createLayerStack();
-    this.rightLayers = this.createLayerStack();
+    const pal = scaffoldPalette(defaultParams().hue);
+    this.ambientPlate = new CymaticPlate3D(AMBIENT_BASE_R, 'ambient', 112);
+    this.corePlate = new CymaticPlate3D(CORE_BASE_R, 'core', 140);
+    this.eqRing = new SpectrumRing3D(pal.voice, SPECTRUM_BARS);
 
-    this.tilt.add(this.layers.container);
-    this.root.add(this.tilt);
-    this.dualLeft.add(this.leftLayers.container);
-    this.dualRight.add(this.rightLayers.container);
-
-    this.scene.add(this.root, this.dualLeft, this.dualRight, this.overlapGlow);
+    this.focus.add(this.corePlate.mesh, this.flower.group, this.eqRing.bars);
+    this.scene.add(this.ambientPlate.mesh, this.focus, this.dualLeft, this.dualRight);
     this.dualLeft.visible = false;
     this.dualRight.visible = false;
 
-    this.camera.position.set(0, -55, 500);
+    this.camera.position.set(0, 0, this.cameraZ);
     this.camera.lookAt(0, 0, 0);
 
+    this.composer = new BloomComposer(this.webgl, this.scene, this.camera);
     this.resize();
-    this.updateScaffold(this.layers, this.displayParams);
     this.startLoop();
   }
 
-  setStyle(style: GeometryStyle): void {
-    if (this.style === style) {
-      return;
-    }
-    this.style = style;
-    this.invalidateLayerCaches(this.layers);
-    this.invalidateLayerCaches(this.leftLayers);
-    this.invalidateLayerCaches(this.rightLayers);
-  }
+  setStyle(_style: GeometryStyle): void {}
 
   setSpectrum(bars: Float32Array): void {
     const n = Math.min(bars.length, SPECTRUM_BARS);
@@ -144,35 +119,32 @@ export class ThreeLabRenderer implements LabRenderer {
   }
 
   refreshTheme(): void {
-    this.invalidateLayerCaches(this.layers);
-    this.invalidateLayerCaches(this.leftLayers);
-    this.invalidateLayerCaches(this.rightLayers);
-    this.applyBg();
+    this.applyPalette(scaffoldPalette(this.displayParams.hue));
   }
 
   resize(): void {
-    const wrap = this.canvas.parentElement;
-    if (!wrap) {
+    const stage = this.canvas.parentElement;
+    if (!stage) {
       return;
     }
-    const size = Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight));
-    const resolved = size >= 1 ? size : 560;
-    this.size = resolved;
-    this.webgl.setSize(resolved, resolved, false);
-    if (size < 1) {
-      return;
-    }
-    this.camera.aspect = 1;
+    const w = Math.max(stage.clientWidth, 320);
+    const h = Math.max(stage.clientHeight, 320);
+    this.sizeW = w;
+    this.sizeH = h;
+    this.webgl.setSize(w, h, false);
+    this.composer.setSize(w, h);
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.applyBg();
+    this.webgl.setClearColor(0x000000, 0);
+    this.layoutWorld();
   }
 
-  render(params: GeometryParams, _pitchTrail = [], frozenRotation?: number): void {
+  render(params: GeometryParams, _pitchTrail: PitchPoint[] = [], frozenRotation?: number): void {
     this.mode = 'single';
-    this.root.visible = true;
+    this.focus.visible = true;
+    this.ambientPlate.mesh.visible = true;
     this.dualLeft.visible = false;
     this.dualRight.visible = false;
-    this.overlapGlow.visible = false;
     this.targetParams = params;
     this.frozenRotation = frozenRotation;
     if (frozenRotation !== undefined) {
@@ -191,16 +163,12 @@ export class ThreeLabRenderer implements LabRenderer {
     this.render(snapshots[snapshots.length - 1].params);
   }
 
-  renderDual(left: GeometryParams, right: GeometryParams, overlap: number): void {
+  renderDual(_left: GeometryParams, _right: GeometryParams, _overlap: number): void {
     this.mode = 'dual';
-    this.root.visible = false;
+    this.focus.visible = false;
+    this.ambientPlate.mesh.visible = false;
     this.dualLeft.visible = true;
     this.dualRight.visible = true;
-    this.overlapGlow.visible = overlap > 0.08;
-    this.dualLeftParams = left;
-    this.dualRightParams = right;
-    this.rotation += (left.rotationSpeed + right.rotationSpeed) * 0.5;
-    this.updateOverlap(overlap, left, right);
   }
 
   clear(): void {
@@ -216,8 +184,8 @@ export class ThreeLabRenderer implements LabRenderer {
     const png = this.exportPng();
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${this.size}" height="${this.size}">`,
-      `<image href="${png}" width="${this.size}" height="${this.size}"/>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${this.sizeW}" height="${this.sizeH}">`,
+      `<image href="${png}" width="${this.sizeW}" height="${this.sizeH}"/>`,
       '</svg>',
     ].join('');
   }
@@ -233,11 +201,45 @@ export class ThreeLabRenderer implements LabRenderer {
 
   dispose(): void {
     cancelAnimationFrame(this.rafId);
+    this.composer.dispose();
+    this.ambientPlate.dispose();
+    this.corePlate.dispose();
+    this.flower.dispose();
+    this.eqRing.dispose();
     this.webgl.dispose();
   }
 
+  private layoutWorld(): void {
+    const focusR = this.focusRadiusWorld();
+    const coverR = this.coverRadiusWorld();
+
+    this.ambientPlate.setScale(coverR / AMBIENT_BASE_R);
+    this.corePlate.setScale((focusR * 0.88) / CORE_BASE_R);
+  }
+
+  private worldPerPixel(): number {
+    const vFov = (this.camera.fov * Math.PI) / 180;
+    const viewH = 2 * Math.tan(vFov / 2) * this.camera.position.z;
+    return viewH / this.sizeH;
+  }
+
+  /** Радиус круга-мандалы в мировых единицах. */
+  private focusRadiusWorld(): number {
+    const frame = document.querySelector('.mandala-frame');
+    const framePx = frame instanceof HTMLElement
+      ? frame.clientWidth * 0.44
+      : Math.min(this.sizeW, this.sizeH, 560) * 0.44;
+    return framePx * this.worldPerPixel();
+  }
+
+  /** Радиус ambient-пластины — покрывает сцену. */
+  private coverRadiusWorld(): number {
+    const coverPx = Math.hypot(this.sizeW, this.sizeH) * 0.52;
+    return coverPx * this.worldPerPixel();
+  }
+
   private renderFrame(): void {
-    this.webgl.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   private startLoop(): void {
@@ -246,291 +248,86 @@ export class ThreeLabRenderer implements LabRenderer {
       this.displayParams = lerpParams(this.displayParams, this.targetParams, LERP);
 
       for (let i = 0; i < SPECTRUM_BARS; i += 1) {
-        this.spectrumDisplay[i] += (this.spectrumTarget[i] - this.spectrumDisplay[i]) * 0.2;
+        this.spectrumDisplay[i] += (this.spectrumTarget[i] - this.spectrumDisplay[i]) * 0.26;
       }
+
+      const audioLevel = this.computeAudioLevel();
+      const live = isLive(this.displayParams);
+      const pal = scaffoldPalette(this.displayParams.hue);
 
       if (this.frozenRotation === undefined) {
         this.rotation += this.displayParams.rotationSpeed;
       }
 
       if (this.mode === 'single') {
-        const live = isLive(this.displayParams);
-        this.root.rotation.z = this.rotation * (live ? 0.055 : 0.028);
-        this.updateScaffold(this.layers, this.displayParams);
-      } else {
-        const sf = this.scaleFactor();
-        this.dualLeft.position.x = -sf * 90;
-        this.dualRight.position.x = sf * 90;
-        const scale = 0.58;
-        this.updateScaffold(this.leftLayers, scaleParams(this.dualLeftParams, scale));
-        this.updateScaffold(this.rightLayers, scaleParams(this.dualRightParams, scale));
+        this.focus.rotation.z = this.rotation * 0.012;
+        this.applyPalette(pal);
+        this.updateScene(audioLevel, live);
+        this.updateCamera(audioLevel, live);
+        this.syncAura(audioLevel, live);
       }
 
-      this.applyBg();
+      const bloom = 0.34 + audioLevel * 0.4 + (live ? 0.1 : 0);
+      this.composer.setBloomStrength(bloom);
+      this.scene.background = null;
       this.renderFrame();
       this.rafId = requestAnimationFrame(tick);
     };
     this.rafId = requestAnimationFrame(tick);
   }
 
-  private applyBg(): void {
-    const bg = readCanvasBg();
-    this.scene.background = bg;
-    this.webgl.setClearColor(bg, 1);
+  private applyPalette(pal: ReturnType<typeof scaffoldPalette>): void {
+    this.ambientPlate.setColors(pal.line, pal.halo);
+    this.corePlate.setColors(pal.line, pal.voice);
+    this.eqRing.setColor(pal.voice);
+    this.flower.tint(pal.halo, 0.38);
   }
 
-  private scaleFactor(): number {
-    return (this.size * 0.62) / REF_RADIUS;
-  }
-
-  private patternRadius(params: GeometryParams): number {
-    return params.radius * this.scaleFactor();
-  }
-
-  private createLayerStack(): ScaffoldLayers {
-    const container = new THREE.Group();
-    const circles = new THREE.Group();
-    const halo = new THREE.Group();
-    halo.position.z = -0.04;
-    const breathPts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 128; i += 1) {
-      const t = (i / 128) * Math.PI * 2;
-      breathPts.push(new THREE.Vector3(Math.cos(t), Math.sin(t), -0.06));
-    }
-    const breath = new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints(breathPts),
-      new THREE.LineBasicMaterial({ transparent: true, opacity: 0.2, color: 0xffffff }),
-    );
-    breath.visible = false;
-
-    container.add(circles, halo, breath);
-    return {
-      container,
-      circles,
-      halo,
-      breath,
-      lastBuildKey: '',
-      nodes: flowerOfLifeNodes(100),
-    };
-  }
-
-  private invalidateLayerCaches(layers: ScaffoldLayers): void {
-    layers.lastBuildKey = '';
-  }
-
-  private updateOverlap(overlap: number, left: GeometryParams, right: GeometryParams): void {
-    const r = this.scaleFactor() * 120 * overlap;
-    this.overlapGlow.geometry.dispose();
-    this.overlapGlow.geometry = new THREE.CircleGeometry(r, 48);
-    const pal = scaffoldPalette((left.hue + right.hue) * 0.5);
-    const mat = this.overlapGlow.material as THREE.MeshBasicMaterial;
-    mat.color = pal.voice;
-    mat.opacity = 0.05 + overlap * 0.16;
-  }
-
-  private updateScaffold(layers: ScaffoldLayers, params: GeometryParams): void {
-    const patternR = this.patternRadius(params);
-    const pal = scaffoldPalette(params.hue);
-    const live = isLive(params);
-    const buildKey = scaffoldBuildKey(this.style, patternR);
-
-    if (buildKey !== layers.lastBuildKey) {
-      layers.nodes = buildScaffoldStructure(
-        layers.circles,
-        layers.halo,
-        this.style,
-        patternR,
-        pal.line,
-        pal.halo,
-      );
-      layers.lastBuildKey = buildKey;
-    } else {
-      tintLineGroup(layers.circles, pal.line);
-      tintLineGroup(layers.halo, pal.halo);
-    }
-
-    this.paintCircles(layers, params, pal, live);
-    this.paintHalo(layers, params, pal, live);
-    this.applyLiveMotion(layers, params, live, pal);
-    this.updateBreath(layers.breath, params, patternR, pal.breath);
-  }
-
-  /** Гармоники + RMS → какие круги ярче; f₀ → один акцентный круг. */
-  private paintCircles(
-    layers: ScaffoldLayers,
-    params: GeometryParams,
-    pal: ReturnType<typeof scaffoldPalette>,
-    live: boolean,
-  ): void {
-    const active = Math.min(7, Math.max(params.elementCount, live ? 6 : params.elementCount));
-    const pitchIndex = nearestPitchCircle(params.pitchAngle);
-
-    layers.circles.children.forEach((child) => {
-      if (!(child instanceof THREE.LineLoop)) {
-        return;
-      }
-      const index = Number.parseInt(child.name.replace('circle-', ''), 10);
-      const mat = child.material as THREE.LineBasicMaterial;
-
-      if (index === 0) {
-        mat.color = live ? pal.voice.clone().lerp(pal.line, 0.55) : pal.line;
-        mat.opacity = live
-          ? 0.4 + params.opacity * 0.35 + Math.sin(this.time * 3) * 0.04 * params.opacity
-          : 0.35 + params.opacity * 0.2;
-        return;
-      }
-
-      const isActive = Number.isNaN(index) || index < active;
-      const isPitch = live && index === pitchIndex;
-
-      mat.color = isPitch ? pal.voice : isActive ? pal.line : pal.halo;
-      mat.opacity = isPitch
-        ? 0.72 + params.opacity * 0.25
-        : isActive
-          ? 0.48 + params.opacity * 0.38
-          : 0.12;
-    });
-  }
-
-  /** Спектр → яркость 6 внешних кругов; RMS → граница. */
-  private paintHalo(
-    layers: ScaffoldLayers,
-    params: GeometryParams,
-    pal: ReturnType<typeof scaffoldPalette>,
-    live: boolean,
-  ): void {
-    const binsPerSector = Math.floor(SPECTRUM_BARS / SPECTRUM_SECTORS);
-    const boundaryBoost = 0.22 + params.opacity * (live ? 0.5 : 0.4);
-
-    layers.halo.children.forEach((child) => {
-      if (!(child instanceof THREE.LineLoop)) {
-        return;
-      }
-      const mat = child.material as THREE.LineBasicMaterial;
-
-      if (child.name === 'boundary') {
-        mat.color = pal.halo;
-        mat.opacity = boundaryBoost;
-        const breath = live ? 1 + Math.sin(this.time * 2.1) * 0.014 * params.opacity : 1;
-        child.scale.set(breath, breath, 1);
-        return;
-      }
-
-      if (!child.name.startsWith('outer-')) {
-        return;
-      }
-
-      const sector = Number.parseInt(child.name.replace('outer-', ''), 10) - 10;
-      let level = 0;
-      if (sector >= 0 && sector < SPECTRUM_SECTORS) {
-        for (let b = 0; b < binsPerSector; b += 1) {
-          level += this.spectrumDisplay[sector * binsPerSector + b] ?? 0;
-        }
-        level /= binsPerSector;
-      }
-
-      const idle = live ? 0 : 0.03 + 0.012 * (1 + Math.sin(this.time * 1.1 + sector));
-      level = Math.max(level, idle);
-
-      mat.color = live && level > 0.12 ? pal.voice.clone().lerp(pal.halo, 0.45) : pal.halo;
-      mat.opacity = live
-        ? 0.14 + level * 0.52 + params.opacity * 0.15
-        : 0.1 + params.opacity * 0.12;
-
-      const s = live ? 1 + level * 0.018 : 1;
-      child.scale.set(s, s, 1);
-    });
-  }
-
-  private applyLiveMotion(
-    layers: ScaffoldLayers,
-    params: GeometryParams,
-    live: boolean,
-    _pal: ReturnType<typeof scaffoldPalette>,
-  ): void {
+  private updateScene(audioLevel: number, live: boolean): void {
+    const params = this.displayParams;
     const energy = params.opacity;
-    const pulse = 1 + Math.sin(this.time * 2.6) * (live ? 0.024 : 0.008) * energy;
-    layers.container.scale.set(pulse, pulse, 1);
+    const focusR = this.focusRadiusWorld();
 
-    this.tilt.rotation.x = 0.1 + params.pitchAngle * 0.045 + Math.sin(this.time * 0.85) * 0.025 * energy;
-    this.tilt.rotation.y = Math.sin(this.time * 0.65 + params.pitchAngle) * 0.035 * energy;
-    layers.halo.rotation.z = -params.pitchAngle * 0.1 - this.rotation * 0.01;
+    this.ambientPlate.updateFromParams(this.time, params, this.spectrumDisplay, audioLevel, live);
+    this.corePlate.updateFromParams(this.time, params, this.spectrumDisplay, audioLevel, live);
 
-    layers.circles.children.forEach((child) => {
-      if (!(child instanceof THREE.LineLoop)) {
-        return;
-      }
-      const index = Number.parseInt(child.name.replace('circle-', ''), 10);
-      const baseZ = index === 0 ? 0 : 0.04 + index * 0.015;
-      const wobble = live ? Math.sin(this.time * 2.4 + index * 0.85) * 0.022 * energy : 0;
-      child.position.z = baseZ + wobble;
-    });
+    const eqR = focusR * 0.96;
+    this.eqRing.bars.position.z = 0.12;
+    this.eqRing.update(eqR, this.spectrumDisplay, this.time, live, energy);
+
+    const flowerR = focusR * 0.82;
+    this.flower.rebuild(flowerR, scaffoldPalette(params.hue).halo, live ? 0.42 : 0.32);
+
+    this.layoutWorld();
   }
 
-  private updateBreath(
-    loop: THREE.LineLoop,
-    params: GeometryParams,
-    patternR: number,
-    color: THREE.Color,
-  ): void {
-    if (params.breathRing <= 0.05) {
-      loop.visible = false;
+  private syncAura(audioLevel: number, live: boolean): void {
+    const frame = document.querySelector('.mandala-frame');
+    if (!(frame instanceof HTMLElement)) {
       return;
     }
-    loop.visible = true;
-    const pulse = 1 + Math.sin(this.time * 1.6) * 0.006;
-    const r = patternR * (1.06 + params.breathRing * 0.12) * pulse;
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 128; i += 1) {
-      const t = (i / 128) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(t) * r, Math.sin(t) * r, -0.06));
+    frame.style.setProperty('--mandala-aura', String(live ? 0.5 + audioLevel * 0.85 : 0.32));
+    frame.style.setProperty('--mandala-hue', String(Math.round(this.displayParams.hue)));
+  }
+
+  private computeAudioLevel(): number {
+    let sum = 0;
+    for (let i = 0; i < SPECTRUM_BARS; i += 1) {
+      sum += this.spectrumDisplay[i];
     }
-    loop.geometry.dispose();
-    loop.geometry = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = loop.material as THREE.LineBasicMaterial;
-    mat.color = color;
-    mat.opacity = 0.18 + params.breathRing * 0.32;
+    return sum / SPECTRUM_BARS;
+  }
+
+  private updateCamera(audioLevel: number, live: boolean): void {
+    const breath = Math.max(this.displayParams.breathRing, 0.04);
+    const targetZ = this.cameraZ - audioLevel * 28 - breath * 14;
+    this.camera.position.z += (targetZ - this.camera.position.z) * 0.035;
+    this.camera.position.x = 0;
+    this.camera.position.y = 0;
+    this.camera.lookAt(0, 0, 0);
   }
 }
 
 function isLive(params: GeometryParams): boolean {
-  return params.opacity > 0.68;
-}
-
-function nearestPitchCircle(pitchAngle: number): number {
-  const dir = pitchAngle % (Math.PI * 2);
-  let best = 1;
-  let bestDiff = Infinity;
-  for (let i = 1; i <= 6; i += 1) {
-    const angle = ((i - 1) * Math.PI) / 3;
-    const diff = Math.abs(wrapAngle(angle - dir));
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = i;
-    }
-  }
-  return best;
-}
-
-function scaleParams(params: GeometryParams, scale: number): GeometryParams {
-  return { ...params, radius: params.radius * scale };
-}
-
-function wrapAngle(a: number): number {
-  let x = a % (Math.PI * 2);
-  if (x > Math.PI) {
-    x -= Math.PI * 2;
-  }
-  if (x < -Math.PI) {
-    x += Math.PI * 2;
-  }
-  return x;
-}
-
-function tintLineGroup(group: THREE.Group, color: THREE.Color): void {
-  group.traverse((node) => {
-    if (node instanceof THREE.LineLoop || node instanceof THREE.Line) {
-      (node.material as THREE.LineBasicMaterial).color = color;
-    }
-  });
+  return params.opacity > 0.5;
 }

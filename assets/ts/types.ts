@@ -56,6 +56,8 @@ export interface FeatureSnapshot {
   params: GeometryParams;
   label: string;
   pitchTrail?: PitchPoint[];
+  /** Снимок спектра для слепка / экспорта. */
+  spectrum?: number[];
 }
 
 export type LabMode = 'live' | 'process';

@@ -1,7 +1,7 @@
 # Voice Mandala — реализация и развитие
 
-> **Статус:** v1.3 (июнь 2026) · ветка `main`  
-> **Live:** честный EQ-круг · **Экспорт:** структурированная мандала из голоса
+> **Статус:** v1.4 (июнь 2026) · ветка `main`  
+> **Live:** честный EQ-круг · **Экспорт:** точечная или слойная мандала из голоса
 
 ---
 
@@ -9,40 +9,60 @@
 
 ### Live (экран Live / Process)
 
-- **8 зон спектра** — дуги по частотам, усиленная чувствительность сегментов.
-- **Кольцо уровня** + **% · Уровень** — нормализованный RMS (`levelNorm`), **0% в тишине** (не подмена через `opacity` params).
-- **Hz + точка тона** — основная частота на круге.
-- **Калибровка ~12 сек** — таймер независим от rAF (`CalibrationRunner`), кнопка «Перекалибровать», пропуск.
-- Режим **Process** — слепки по ходу; на экране по-прежнему спектр, не мандала.
+- **8 зон спектра** — дуги по частотам, усиление сегментов от калибровки (`spectrumGain`).
+- **Кольцо уровня + % · Уровень** — нормализованный RMS; учитывается и **спектральная энергия** (шипение, дыхание, согласные не обнуляют уровень).
+- **Hz + точка тона** — f₀ через каскад: автокорреляция → пик FFT → spectral centroid.
+- **Калибровка ~12 сек** — таймер независим от rAF (`CalibrationRunner`), пропуск, перекалибровка.
+- **Process** — слепки на таймлайне; на экране спектр, не мандала.
 
-### Экспорт (PNG / SVG / ZIP сессии)
+### Экспорт
 
-Отдельный рендер `MandalaRenderer` + слои в `voiceMandalaLayers.ts`.
+Единая форма: **Размер · Стиль · Действие**.
 
-**Принцип:** один акустический параметр → один визуальный слой. Без «леса» из десяти типов мотивов.
+| Действие | Условие |
+|----------|---------|
+| PNG / SVG | После «Стоп», мин. данные голоса |
+| ZIP сессии | Process, ≥1 слепок |
+| Видео | Process, ≥2 слепка, WebCodecs |
+| Кино (голос) | ≥12 сэмплов таймлайна + запись голоса в браузере |
+| Сохранить в своё место | Авторизация → `POST /api/patterns` |
 
-| Слой | Источник | Файл |
-|------|----------|------|
-| Вложенные кольца | гармоники → `elementCount` | `drawHarmonicRings` |
-| 8 дуг спектра | `snapshot.spectrum` (peak + gamma) | `drawSpectrumArcs` |
-| Лучи (3–12) | тон → `rays`, `pitchAngle` | `drawToneRays` |
-| Звезда N-лучей | ритм → `symmetry` + shimmer f₀/flux | `drawRhythmStar` |
-| Малый многоугольник | тембр → `lineWidth` | `drawTimbreCore` |
-| Цветок жизни | каркас стиля `flower` | `drawFlowerScaffold` |
-| **Линия следа голоса** | `pitchTrail`, штрих/толщина от `VoiceMotifKind` | `drawVoiceTrace` |
-| Орбита Process | слепки как узлы | `drawProcessOrbit` |
-| Внешнее кольцо | RMS → `radius`, `opacity` | `drawRmsRing` |
-| Метка Hz | `features.frequency` | `drawPitchMarker` |
-| Дыхание (редко) | пауза → `breathRing` | `MandalaRenderer` |
+**Стили:**
 
-Экспорт **не** рисует live-canvas: offscreen Paper.js 960×960, проверка на пустые файлы и короткий след (`exportValidation.ts`).
+| UI | Рендер | Модули |
+|----|--------|--------|
+| **Точечная мандала** | `dots` | `dotMandalaLayers.ts`, `dotMandalaMath.ts` |
+| **Слои (линии)** | `flower` | `voiceMandalaLayers.ts`, чакровая палитра (`mandalaPalette.ts`) |
+
+Offscreen Paper.js, размеры 800 / 1600 / 3200 px. Guards: `exportValidation.ts`.
+
+#### Слойная мандала (layers / flower)
+
+| Слой | Источник |
+|------|----------|
+| Спектральные кольца Process | EQ каждого этапа, чакровые маркеры |
+| Гармонические кольца | `elementCount` |
+| Лучи, звезда | тон, ритм, shimmer f₀ |
+| След голоса | `pitchTrail`, мотивы |
+| Орбита Process | узлы слепков |
+| RMS-кольцо, метка Hz, дыхание | финальный кадр |
+
+#### Точечная мандала (dots)
+
+- Кольца от Process / вдохов — точки на лучах по спектру этапа.
+- Контраст и размер от уровня внутри кольца; bindu в центре.
+- Спираль pitch trail под кольцами; лепестки у сильных лучей.
 
 ### Калибровка и профиль
 
-- `VoiceProfile` — границы RMS / f₀ / centroid, `localStorage` (`sgl-voice-profile`), дата калибровки.
-- `spectrumGain()` — только для live-сегментов EQ, не подменяет экспорт.
-- **Мягкая перекалибровка** — подсказка через 14 дней без сброса профиля.
-- **Session variety** — детерминированный сдвиг hue/scale/star от `profileHash + sessionStarted` (`sessionVariety.ts`).
+- `VoiceProfile` — границы RMS / f₀ / centroid, `localStorage` (`sgl-voice-profile`).
+- **Мягкая перекалибровка** — подсказка через 14 дней.
+- **Session variety** — hue/scale от `profileHash + sessionStarted`.
+
+### Видео
+
+- **Слайдшоу Process** (`exportSessionVideo.ts`) — morph между слепками, 24 fps, WebM VP9.
+- **Кино** (`exportSessionCinemaVideo.ts`) — 30 fps + голос из `SessionCapture`; аудио не уходит на сервер.
 
 ---
 
@@ -60,14 +80,15 @@
    EqLabRenderer (live)              FeatureSnapshot + pitchTrail
    levelNorm / setSpectrum                     ↓
                                          MandalaRenderer (export)
-                                         voiceMandalaLayers
+                                         dots | voiceMandalaLayers
                                          + applySessionVariety
+                                         → PNG / SVG / ZIP / WebM
 ```
 
-1. **Начать** → микрофон, при первом запуске — калибровка.
+1. **Начать** → микрофон; при первом запуске — калибровка.
 2. Каждый кадр → признаки → params; `PitchContour` копит `pitchTrail`.
-3. **Стоп** → кнопки «Мандала PNG/SVG»; `getExportSnapshot()` + проверка `validateExportReadiness`.
-4. **Process ZIP** — слепки + итог + `session-report.txt` (метрики профиля).
+3. **Process** → `ProcessMode.capture()` по таймеру / изменению спектра.
+4. **Стоп** → форма экспорта; `validateExportReadiness` перед скачиванием.
 
 ---
 
@@ -76,57 +97,50 @@
 ### Сильные стороны
 
 - Чёткое разделение **live = спектр**, **export = мандала**.
-- Документированный маппинг params ↔ акустика (`MappingEngine`, PROJECT.md).
-- Калибровка устойчива к обрыву rAF (таймер).
-- Экспорт с валидацией размера PNG/SVG и минимального следа голоса.
-- Unit-тесты (маппинг, калибровка, экспорт, session variety).
+- Два зрелых стиля экспорта (точки / слои).
+- Текстуры голоса (ш-ш, дыхание) через `spectralLevel` + fallback pitch.
+- Process: ZIP, видео, кино, session-report.
+- Кабинет + OAuth + patterns API.
+- Unit-тесты: geometry, calibration, export, video timeline.
 
-### Оставшиеся ограничения
+### Ограничения
 
 | Проблема | Статус |
 |----------|--------|
-| Короткая сессия без речи | **исправлено** — guard + сообщение пользователю |
-| Похожие мандалы каждый день | **смягчено** — session fingerprint + motif stroke в следе |
-| Three.js модули в репо | не в live-bundle; экспериментальный код |
-| Нет e2e в браузере | golden PNG / e2e — в backlog |
+| Live ≠ export mandala | **намеренно** — разные рендереры |
+| WebCodecs / Safari | видео и кино — Chrome/Firefox надёжнее |
+| Three.js в репо | не в bundle |
+| Formant → timbre | backlog |
+| Golden PNG e2e | backlog |
+| Max OAuth, диалог | backlog |
 
-### Безопасность / приватность
+### Приватность
 
-- Аудио не отправляется на сервер (кроме опционального «Сохранить узор» для авторизованных).
-- Слова не распознаются — только акустика.
+- Аудио не на сервер (кроме локальной записи для «кино» — только скачивание).
+- Слова не распознаются.
+- Сохранение узора — только params + SVG + timeline (числа).
 
 ---
 
-## Дорожная карта: чувствительность и вариативность
+## Дорожная карта
 
-**Цель:** мандала **не одна и та же каждый день** — считываются оттенки голоса, не только громкость.
+### Сделано (v1.3 → v1.4)
 
-### 1. Богаче след голоса (export)
+- [x] Точечная мандала: контраст, иерархия колец, спираль
+- [x] Слойная: Process spectrum rings, чакры
+- [x] Экспорт видео + кино с голосом
+- [x] Единая форма экспорта (стиль / размер / действие)
+- [x] Кабинет: rename, delete, PNG archive
+- [x] FeatureExtractor: spectral activity для текстур
 
-- [x] Кодировать **тип изменения** в следе: толщина/штрих от `VoiceMotifKind`.
-- [x] Второе кольцо следа для **Process** (слепки как узлы на орбите).
-- [x] Минимальная длина сессии для экспорта + предупреждение «мало данных».
+### Backlog
 
-### 2. Чувствительность live и params
-
-- [x] Тонкая настройка `normalizeFeatures` — больше динамики в mid-range RMS.
-- [x] Per-session drift: сдвиг hue/scale от **session hash** (дата + profile).
-- [x] Микро-jitter от shimmer f₀ — асимметрия звезды.
-
-### 3. Спектр и тембр
-
-- [x] 8 дуг экспорта — per-band peak normalize + gamma.
-- [ ] Formant bands → форма `drawTimbreCore` (F1–F3), когда появится extractor.
-
-### 4. Калибровка и профиль
-
-- [x] «Мягкая» перекалибровка раз в N дней без сброса истории.
-- [x] Экспорт метрик профиля в `session-report.txt`.
-
-### 5. QA
-
-- [ ] Golden PNG tests (fixture snapshots → hash).
-- [x] Dev-панель: `?dev=1` — RMS, spectrum, params рядом с кругом.
+- [ ] Formant bands → `drawTimbreCore`
+- [ ] Golden PNG tests
+- [ ] Режим диалога (DualAudioEngine)
+- [ ] Server thumbnails для patterns
+- [ ] GDPR JSON export из кабинета
+- [ ] Max OAuth
 
 ---
 
@@ -134,34 +148,36 @@
 
 | Путь | Назначение |
 |------|------------|
-| `assets/ts/lab/LabApp.ts` | сессия, калибровка, экспорт, dev panel |
-| `assets/ts/lab/CalibrationRunner.ts` | таймер калибровки |
+| `assets/ts/lab/LabApp.ts` | сессия, экспорт, Alpine store |
 | `assets/ts/geometry/EqLabRenderer.ts` | live EQ |
 | `assets/ts/geometry/MandalaRenderer.ts` | export orchestrator |
-| `assets/ts/geometry/voiceMandalaLayers.ts` | слои мандалы |
-| `assets/ts/geometry/sessionVariety.ts` | fingerprint сессии |
-| `assets/ts/geometry/MappingEngine.ts` | звук → params |
-| `assets/ts/geometry/PitchContour.ts` | pitchTrail |
-| `assets/ts/export/mandalaExport.ts` | PNG/SVG pipeline |
-| `assets/ts/export/exportValidation.ts` | guards экспорта |
-| `assets/ts/audio/VoiceProfile.ts` | калибровка, normalize |
+| `assets/ts/geometry/dotMandalaLayers.ts` | точечная мандала |
+| `assets/ts/geometry/voiceMandalaLayers.ts` | слойная мандала |
+| `assets/ts/export/exportOptions.ts` | стили, размеры, действия |
+| `assets/ts/export/exportSessionVideo.ts` | видео Process |
+| `assets/ts/export/exportSessionCinemaVideo.ts` | кино + голос |
+| `assets/ts/export/SessionCapture.ts` | запись таймлайна/аудио |
+| `assets/ts/audio/FeatureExtractor.ts` | признаки + текстуры |
+| `assets/ts/audio/VoiceProfile.ts` | калибровка |
 
 ---
 
 ## Команды
 
 ```bash
-npm run dev          # Vite + Symfony
-npm run build        # production assets
+npm run dev          # Vite
+npm run build        # → public/build/
 npm test             # vitest
-npm run typecheck    # tsc
+npm run typecheck
+bin/dev test         # vitest + phpunit
 ```
 
-Dev-панель на главной: `/?dev=1`
+Dev-панель: `/?dev=1`
 
 ---
 
 ## Связанные документы
 
-- `PROJECT.md` — продуктовая спецификация и таблица маппингов v1.
-- Этот файл — **фактическая реализация** и план шлифовки.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — полная архитектура
+- [PROJECT.md](../PROJECT.md) — продукт и чеклисты MVP/v1/v2
+- [README.md](../README.md) — быстрый старт

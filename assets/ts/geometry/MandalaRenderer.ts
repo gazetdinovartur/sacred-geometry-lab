@@ -8,6 +8,7 @@ import {
   drawFlowerScaffold,
   drawHarmonicRings,
   drawPitchMarker,
+  drawProcessOrbit,
   drawRhythmStar,
   drawRmsRing,
   drawSpectrumArcs,
@@ -77,11 +78,12 @@ export class MandalaRenderer implements LabRenderer {
   }
 
   renderSnapshot(snapshot: FeatureSnapshot): void {
-    this.renderVoiceMandala(
+    this.  renderVoiceMandala(
       snapshot.params,
       snapshot.features,
       snapshot.pitchTrail ?? [],
       snapshot.spectrum,
+      snapshot.processSnapshots,
     );
   }
 
@@ -100,6 +102,7 @@ export class MandalaRenderer implements LabRenderer {
       snapshots[snapshots.length - 1].features,
       mergedTrail,
       averageSpectrum(snapshots),
+      snapshots,
     );
   }
 
@@ -157,6 +160,7 @@ export class MandalaRenderer implements LabRenderer {
     features: AudioFeatures,
     pitchTrail: PitchPoint[] = [],
     spectrum?: number[],
+    processSnapshots?: FeatureSnapshot[],
   ): void {
     paper.project.clear();
     const center = this.layoutCenter();
@@ -179,7 +183,7 @@ export class MandalaRenderer implements LabRenderer {
     }
 
     drawToneRays(this.group, center, R, params, stroke);
-    drawRhythmStar(this.group, center, R, params, stroke);
+    drawRhythmStar(this.group, center, R, params, features, stroke);
     drawTimbreCore(this.group, center, R, params, stroke);
 
     if (this.style === 'flower' || this.style === 'seed') {
@@ -187,6 +191,9 @@ export class MandalaRenderer implements LabRenderer {
     }
 
     drawVoiceTrace(this.group, center, R, pitchTrail, params, this.palette);
+    if (processSnapshots?.length) {
+      drawProcessOrbit(this.group, center, R, processSnapshots, params, this.palette);
+    }
     drawRmsRing(this.group, center, R, params, stroke);
     drawPitchMarker(this.group, center, R, features, params, stroke);
 

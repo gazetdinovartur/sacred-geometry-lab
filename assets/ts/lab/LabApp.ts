@@ -9,6 +9,7 @@ import type { AudioFrame } from '../modes/AudioSessionLoop';
 import { formatSilenceLabel } from '../geometry/SilenceMapper';
 import { downloadPng, downloadSvg } from '../export/exportFiles';
 import { exportMandalaPng, exportMandalaSvg } from '../export/mandalaExport';
+import { validateExportReadiness } from '../export/exportValidation';
 import { VoiceProfile, type NormalizedFeatures } from '../audio/VoiceProfile';
 import { CalibrationRunner } from './CalibrationRunner';
 import { PitchContour } from '../geometry/PitchContour';
@@ -73,6 +74,11 @@ export class LabApp {
   private warmUpUntil = 0;
   private statusTimer = 0;
   private lastMotifFlash = 0;
+  private sessionStarted = 0;
+  private voiceAccumMs = 0;
+  private lastFrameTs = 0;
+  private devPanelEl: HTMLElement | null = null;
+  private readonly devMode = new URLSearchParams(window.location.search).get('dev') === '1';
 
   private readonly storeRef: LabStore = {
     onLabPage: false,
@@ -143,6 +149,10 @@ export class LabApp {
       this.store.isFullscreen = document.fullscreenElement === this.workspaceEl;
       this.refreshCanvas();
     });
+
+    if (this.devMode) {
+      this.mountDevPanel();
+    }
   }
 
   private primaryLabel(): string {
@@ -185,6 +195,9 @@ export class LabApp {
     this.pitchContour.reset();
     this.processMode?.reset();
     this.processMode?.beginSession();
+    this.sessionStarted = Date.now();
+    this.voiceAccumMs = 0;
+    this.lastFrameTs = 0;
 
     try {
       this.store.status = 'Подключаем микрофон…';
@@ -201,6 +214,9 @@ export class LabApp {
       } else {
         this.store.isCalibrating = false;
         this.store.status = 'Слушаю…';
+        if (this.voiceProfile.suggestSoftRecalibration()) {
+          this.flashStatus('Профиль давно не обновляли — «Перекалибровать» по желанию');
+        }
       }
     } catch {
       this.store.status = 'Не удалось получить микрофон. Проверьте разрешение в браузере.';
@@ -261,6 +277,9 @@ export class LabApp {
     this.renderer?.clear();
     this.lastSnapshot = null;
     this.frozenIndex = null;
+    this.sessionStarted = 0;
+    this.voiceAccumMs = 0;
+    this.lastFrameTs = 0;
 
     this.store.isActive = false;
     this.store.isPaused = false;
@@ -398,20 +417,27 @@ export class LabApp {
 
   private onAudioFrame(frame: AudioFrame): void {
     this.store.rms = frame.features.rms;
+    const frameDelta = this.lastFrameTs > 0 ? frame.timestamp - this.lastFrameTs : 16;
+    this.lastFrameTs = frame.timestamp;
 
     if (this.voiceProfile.isCalibrating()) {
       this.calibration.pushFeatures(frame.features);
       const norm = this.voiceProfile.normalizeFeatures(frame.features);
-      this.store.rmsNorm = Math.round(safeNormPct(norm.rms));
+      const levelNorm = frame.features.rms >= SILENCE_RMS ? norm.rms : 0;
+      this.store.rmsNorm = Math.round(safeNormPct(levelNorm));
       this.feedEqVisual(frame, norm, true);
       return;
     }
 
     const norm = this.voiceProfile.normalizeFeatures(frame.features);
-    this.store.rmsNorm = Math.round(safeNormPct(norm.rms));
+    const active = frame.features.rms >= SILENCE_RMS;
+    const levelNorm = active ? norm.rms : 0;
+    if (active) {
+      this.voiceAccumMs += frameDelta;
+    }
+    this.store.rmsNorm = Math.round(safeNormPct(levelNorm));
     const params = this.geometryPipeline.resolve(frame.features, norm);
 
-    const active = frame.features.rms >= SILENCE_RMS;
     const motifKind = this.pitchContour.push(norm, frame.features, active, params.symmetry);
     if (motifKind) {
       const label = motifLabel(motifKind);
@@ -429,6 +455,10 @@ export class LabApp {
       params,
       pitchTrail: liveTrail,
       spectrum: Array.from(downsampleBars(this.sessionLoop?.getSpectrumBars(64) ?? new Float32Array(0), EQ_BAND_COUNT)),
+      sessionStarted: this.sessionStarted,
+      profileHash: this.voiceProfile.getHash(),
+      levelNorm,
+      voiceMs: this.voiceAccumMs,
     };
 
     this.lastSnapshot = snapshot;
@@ -448,6 +478,7 @@ export class LabApp {
     }
 
     this.voiceProfile.observe(frame.features);
+    this.updateDevPanel(snapshot, norm);
     this.applyRender(snapshot);
   }
 
@@ -483,9 +514,13 @@ export class LabApp {
     if (this.renderer instanceof EqLabRenderer) {
       this.renderer.setSpectrumGain(this.voiceProfile.spectrumGain(liveSnapshot.features.rms));
       this.renderer.setCalibrationState(false, 0, '');
+      const levelNorm = liveSnapshot.levelNorm
+        ?? (liveSnapshot.features.rms >= SILENCE_RMS
+          ? this.voiceProfile.normalizeFeatures(liveSnapshot.features).rms
+          : 0);
       this.renderer.setLiveMetrics(
         liveSnapshot.features.frequency,
-        liveSnapshot.params.opacity,
+        levelNorm,
         liveSnapshot.features.rms >= SILENCE_RMS,
       );
     }
@@ -505,7 +540,7 @@ export class LabApp {
 
     this.renderer.setLiveMetrics(
       frame.features.frequency,
-      norm.rms,
+      frame.features.rms >= SILENCE_RMS ? norm.rms : 0,
       frame.features.rms >= SILENCE_RMS,
     );
 
@@ -644,13 +679,25 @@ export class LabApp {
     if (this.store.mode === 'process' && this.processMode?.getComposite()) {
       return this.processMode.getComposite();
     }
-    return this.lastSnapshot;
+    if (!this.lastSnapshot) {
+      return null;
+    }
+    return {
+      ...this.lastSnapshot,
+      pitchTrail: this.pitchContour.clonePoints(),
+      voiceMs: this.voiceAccumMs,
+    };
   }
 
   private exportSvg(): void {
     const snap = this.getExportSnapshot();
     if (!snap) {
       this.flashStatus('Нечего экспортировать — сначала запишите сессию');
+      return;
+    }
+    const readiness = validateExportReadiness(snap);
+    if (!readiness.ok) {
+      this.flashStatus(readiness.message ?? 'Мало данных для экспорта');
       return;
     }
     try {
@@ -664,6 +711,11 @@ export class LabApp {
     const snap = this.getExportSnapshot();
     if (!snap) {
       this.flashStatus('Нечего экспортировать — сначала запишите сессию');
+      return;
+    }
+    const readiness = validateExportReadiness(snap);
+    if (!readiness.ok) {
+      this.flashStatus(readiness.message ?? 'Мало данных для экспорта');
       return;
     }
     try {
@@ -685,7 +737,11 @@ export class LabApp {
 
     this.store.status = 'Собираем экспорт…';
     try {
-      await exportSessionFrames(snapshots, this.store.geometryStyle);
+      await exportSessionFrames(
+        snapshots,
+        this.store.geometryStyle,
+        this.voiceProfile.getMetrics(),
+      );
       this.flashStatus('Архив sgl-session.zip скачан');
     } catch {
       this.flashStatus('Не удалось собрать архив — попробуйте ещё раз');
@@ -740,6 +796,34 @@ export class LabApp {
         this.store.status = '';
       }
     }, 2500);
+  }
+
+  private mountDevPanel(): void {
+    const panel = document.createElement('aside');
+    panel.className = 'lab-dev-panel';
+    panel.setAttribute('aria-hidden', 'true');
+    panel.innerHTML = '<pre class="lab-dev-panel__pre"></pre>';
+    this.workspaceEl?.appendChild(panel);
+    this.devPanelEl = panel;
+  }
+
+  private updateDevPanel(snapshot: FeatureSnapshot, norm: NormalizedFeatures): void {
+    if (!this.devPanelEl) {
+      return;
+    }
+
+    const pre = this.devPanelEl.querySelector('.lab-dev-panel__pre');
+    if (!(pre instanceof HTMLElement)) {
+      return;
+    }
+
+    const bands = snapshot.spectrum?.map((v) => v.toFixed(2)).join(' ') ?? '—';
+    pre.textContent = [
+      `rms ${snapshot.features.rms.toFixed(4)} · norm ${norm.rms.toFixed(2)} · voice ${Math.round(this.voiceAccumMs)}ms`,
+      `f₀ ${snapshot.features.frequency.toFixed(0)} Hz · trail ${snapshot.pitchTrail?.length ?? 0}`,
+      `params hue ${snapshot.params.hue.toFixed(0)} sym ${snapshot.params.symmetry} op ${snapshot.params.opacity.toFixed(2)}`,
+      `spectrum ${bands}`,
+    ].join('\n');
   }
 }
 

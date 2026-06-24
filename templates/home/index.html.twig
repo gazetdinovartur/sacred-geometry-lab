@@ -13,13 +13,13 @@
                         class="mode-switch__btn"
                         :class="{ 'is-active': $store.lab.mode === 'live' }"
                         @click="$store.lab.setMode('live')">
-                    Момент
+                    Live
                 </button>
                 <button type="button"
                         class="mode-switch__btn"
                         :class="{ 'is-active': $store.lab.mode === 'process' }"
                         @click="$store.lab.setMode('process')">
-                    Процесс
+                    Process
                 </button>
             </div>
             <button type="button"

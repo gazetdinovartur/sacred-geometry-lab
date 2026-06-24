@@ -1,6 +1,8 @@
 import { MandalaRenderer } from '../geometry/MandalaRenderer';
+import { applySessionVariety } from '../geometry/sessionVariety';
 import { boostParamsForExport } from '../geometry/exportParams';
 import type { FeatureSnapshot, GeometryStyle } from '../types';
+import type { VoiceProfileMetrics } from '../audio/VoiceProfile';
 import { isValidSvgMarkup, prepareSnapshotForExport } from './exportValidation';
 
 const EXPORT_SIZE = 960;
@@ -30,10 +32,19 @@ function ensureRenderer(): MandalaRenderer {
 }
 
 function preparedSnapshot(snapshot: FeatureSnapshot): FeatureSnapshot {
-  return prepareSnapshotForExport({
+  let snap = prepareSnapshotForExport({
     ...snapshot,
     params: boostParamsForExport(snapshot.params),
   });
+
+  if (snap.sessionStarted && snap.profileHash) {
+    snap = {
+      ...snap,
+      params: applySessionVariety(snap.params, snap.profileHash, snap.sessionStarted),
+    };
+  }
+
+  return snap;
 }
 
 export function renderMandalaSnapshot(
@@ -68,12 +79,30 @@ export function exportMandalaPng(snapshot: FeatureSnapshot, style: GeometryStyle
   return renderer.exportPng();
 }
 
-export function sessionReportText(snapshots: FeatureSnapshot[]): string {
+export function sessionReportText(
+  snapshots: FeatureSnapshot[],
+  profile?: VoiceProfileMetrics,
+): string {
   const lines = [
     'Sacred Geometry Lab — отчёт сессии',
     `Слепков: ${snapshots.length}`,
-    '',
   ];
+
+  if (profile) {
+    lines.push(
+      '',
+      'Профиль голоса',
+      `  hash ${profile.hash}`,
+      `  f₀ ${Math.round(profile.f0Min)}–${Math.round(profile.f0Max)} Hz`,
+      `  RMS ${profile.rmsMin.toFixed(3)}–${profile.rmsMax.toFixed(3)}`,
+      `  centroid ${Math.round(profile.centroidMin)}–${Math.round(profile.centroidMax)} Hz`,
+      profile.calibratedAt
+        ? `  калибровка ${new Date(profile.calibratedAt).toISOString().slice(0, 10)}`
+        : '  калибровка —',
+    );
+  }
+
+  lines.push('');
 
   snapshots.forEach((snap, i) => {
     const f = snap.features;
@@ -81,6 +110,7 @@ export function sessionReportText(snapshots: FeatureSnapshot[]): string {
       `${i + 1}. ${snap.label}`,
       `   RMS ${(f.rms * 100).toFixed(1)}% · f₀ ${f.frequency > 0 ? `${Math.round(f.frequency)} Hz` : '—'}`,
       `   симметрия ${snap.params.symmetry} · центроид ${Math.round(f.spectralCentroid)} Hz`,
+      snap.voiceMs ? `   голос ~${Math.round(snap.voiceMs / 1000)} с` : '',
       '',
     );
   });

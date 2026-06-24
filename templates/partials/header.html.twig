@@ -8,14 +8,14 @@
                         :class="{ 'is-active': $store.lab.mode === 'live' }"
                         @click="$store.lab.setMode('live')"
                         title="Мгновенная реакция. В тишине — медленное затухание.">
-                    Момент
+                    Live
                 </button>
                 <button type="button"
                         class="mode-switch__btn"
                         :class="{ 'is-active': $store.lab.mode === 'process' }"
                         @click="$store.lab.setMode('process')"
                         title="Один контур — штрих за штрихом.">
-                    Процесс
+                    Process
                 </button>
             </div>
             <button type="button"

@@ -1,5 +1,8 @@
 import type { FeatureSnapshot, GeometryParams } from '../types';
 
+export const MIN_TRAIL_POINTS = 5;
+export const MIN_VOICE_MS = 2500;
+
 const DEFAULT_PARAMS: GeometryParams = {
   radius: 128,
   rays: 6,
@@ -47,6 +50,36 @@ export function prepareSnapshotForExport(snapshot: FeatureSnapshot): FeatureSnap
   return {
     ...snapshot,
     params: sanitizeGeometryParams(snapshot.params),
+  };
+}
+
+export type ExportReadiness = {
+  ok: boolean;
+  message?: string;
+};
+
+/** Короткая сессия без речи — не собираем «пустую» мандалу. */
+export function validateExportReadiness(snapshot: FeatureSnapshot): ExportReadiness {
+  const trail = snapshot.pitchTrail ?? [];
+  if (trail.length >= MIN_TRAIL_POINTS) {
+    return { ok: true };
+  }
+
+  const voiceMs = snapshot.voiceMs ?? 0;
+  if (voiceMs >= MIN_VOICE_MS && trail.length >= 2) {
+    return { ok: true };
+  }
+
+  if (trail.length === 0) {
+    return {
+      ok: false,
+      message: 'Мало данных — говорите дольше перед экспортом',
+    };
+  }
+
+  return {
+    ok: false,
+    message: 'След голоса короткий — звучите ещё немного',
   };
 }
 

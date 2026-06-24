@@ -78,6 +78,10 @@ export class ProcessMode {
       label: 'Итог',
       pitchTrail: fullPitchTrail,
       spectrum: averageSpectrum(this.snapshots),
+      processSnapshots: [...this.snapshots],
+      sessionStarted: this.snapshots[0]?.sessionStarted,
+      profileHash: this.snapshots[0]?.profileHash,
+      voiceMs: this.snapshots.reduce((sum, s) => sum + (s.voiceMs ?? 0), 0),
     };
 
     return this.composite;

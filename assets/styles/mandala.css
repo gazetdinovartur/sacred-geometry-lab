@@ -398,3 +398,27 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.lab__workspace {
+  position: relative;
+}
+
+.lab-dev-panel {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 4;
+  max-width: min(18rem, 42vw);
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 28%, transparent);
+  pointer-events: none;
+}
+
+.lab-dev-panel__pre {
+  margin: 0;
+  font: 0.62rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}

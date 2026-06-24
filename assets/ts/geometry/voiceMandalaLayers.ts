@@ -1,11 +1,41 @@
 import paper from 'paper';
-import type { AudioFeatures, GeometryParams, PitchPoint } from '../types';
+import type { AudioFeatures, FeatureSnapshot, GeometryParams, PitchPoint, VoiceMotifKind } from '../types';
 import type { MandalaPalette } from './mandalaPalette';
 import { paletteStroke } from './mandalaPalette';
+import { pitchShimmerJitter } from './sessionVariety';
 
 export const EXPORT_BANDS = 8;
 
 type StrokeFn = (opacity: number) => paper.Color;
+
+type MotifStroke = {
+  width: number;
+  opacity: number;
+  dash?: number[];
+};
+
+const MOTIF_STROKES: Record<VoiceMotifKind, MotifStroke> = {
+  ring: { width: 1.35, opacity: 0.72 },
+  petal: { width: 0.82, opacity: 0.52 },
+  ray: { width: 1.05, opacity: 0.66, dash: [2, 5] },
+  arc: { width: 0.95, opacity: 0.58, dash: [4, 4] },
+  wave: { width: 1.15, opacity: 0.62, dash: [1, 3] },
+  dot: { width: 0.7, opacity: 0.48, dash: [0.5, 4] },
+  filigree: { width: 0.88, opacity: 0.55, dash: [1, 2, 1, 6] },
+  crescent: { width: 1.0, opacity: 0.6, dash: [6, 3] },
+  chevron: { width: 1.2, opacity: 0.68, dash: [3, 2] },
+  lattice: { width: 0.78, opacity: 0.5, dash: [2, 2] },
+};
+
+export function motifStrokeStyle(kind: VoiceMotifKind, variant = 0): MotifStroke {
+  const base = MOTIF_STROKES[kind] ?? MOTIF_STROKES.petal;
+  const v = 1 + variant * 0.04;
+  return {
+    width: base.width * v,
+    opacity: Math.min(base.opacity * (0.94 + variant * 0.03), 0.85),
+    dash: base.dash,
+  };
+}
 
 /** RMS → масштаб и главное кольцо. */
 export function drawRmsRing(
@@ -45,7 +75,15 @@ export function drawHarmonicRings(
   }
 }
 
-/** Спектр → 8 дуг (только контур, без заливки). */
+function normalizeBandLevels(bands: number[]): number[] {
+  const peak = Math.max(...bands, 0.0001);
+  return bands.map((v) => {
+    const t = Math.min(Math.max(v / peak, 0), 1);
+    return Math.pow(t, 0.68);
+  });
+}
+
+/** Спектр → 8 дуг (per-band peak + gamma). */
 export function drawSpectrumArcs(
   group: paper.Group,
   center: paper.Point,
@@ -58,10 +96,11 @@ export function drawSpectrumArcs(
   const span = (Math.PI * 2) / EXPORT_BANDS;
   const gap = span * 0.12;
   const maxDepth = R * 0.28 * energy;
+  const levels = normalizeBandLevels(bands.slice(0, EXPORT_BANDS));
 
   for (let i = 0; i < EXPORT_BANDS; i += 1) {
-    const v = Math.min(Math.max(bands[i] ?? 0, 0), 1);
-    const depth = inner + maxDepth * Math.pow(v, 0.55);
+    const v = levels[i] ?? 0;
+    const depth = inner + maxDepth * v;
     const a0 = -Math.PI / 2 + i * span + gap / 2;
     const a1 = a0 + span - gap;
     const arc = new paper.Path.Arc({
@@ -69,8 +108,8 @@ export function drawSpectrumArcs(
       through: pointOn(center, (a0 + a1) / 2, depth),
       to: pointOn(center, a1, inner),
     });
-    arc.strokeColor = stroke(0.32 + v * energy * 0.42);
-    arc.strokeWidth = 0.85;
+    arc.strokeColor = stroke(0.28 + v * energy * 0.52);
+    arc.strokeWidth = 0.75 + v * 0.35;
     arc.fillColor = null;
     group.addChild(arc);
   }
@@ -98,22 +137,25 @@ export function drawToneRays(
   }
 }
 
-/** Ритм → звезда N-лучей. */
+/** Ритм → звезда N-лучей с микро-jitter от f₀/flux. */
 export function drawRhythmStar(
   group: paper.Group,
   center: paper.Point,
   R: number,
   params: GeometryParams,
+  features: AudioFeatures,
   stroke: StrokeFn,
 ): void {
   const n = Math.max(params.symmetry, 5);
   const outer = R * 0.58;
   const inner = outer * 0.42;
+  const jitter = pitchShimmerJitter(features);
   const star = new paper.Path();
 
   for (let i = 0; i <= n * 2; i += 1) {
     const angle = (Math.PI * i) / n + params.pitchAngle - Math.PI / 2;
-    const r = i % 2 === 0 ? outer : inner;
+    const wobble = (i % 2 === 0 ? 1 : -1) * jitter * R * 18;
+    const r = (i % 2 === 0 ? outer : inner) + wobble;
     const pt = pointOn(center, angle, r);
     if (i === 0) {
       star.moveTo(pt);
@@ -187,7 +229,45 @@ export function drawFlowerScaffold(
   }));
 }
 
-/** Контур голоса — одна линия по pitchTrail (без леса мотивов). */
+/** Process — слепки как узлы на второй орбите. */
+export function drawProcessOrbit(
+  group: paper.Group,
+  center: paper.Point,
+  R: number,
+  snapshots: FeatureSnapshot[],
+  params: GeometryParams,
+  palette: MandalaPalette,
+): void {
+  if (snapshots.length < 2) {
+    return;
+  }
+
+  const orbitR = R * 0.78;
+  const orbit = new paper.Path.Circle({
+    center,
+    radius: orbitR,
+    strokeColor: paletteStroke(palette.secondary, 0.28),
+    strokeWidth: 0.65,
+    dashArray: [2, 8],
+    fillColor: null,
+  });
+  group.addChild(orbit);
+
+  snapshots.forEach((snap, index) => {
+    const t = snapshots.length === 1 ? 0 : index / snapshots.length;
+    const angle = -Math.PI / 2 + t * Math.PI * 2 + params.pitchAngle * 0.12;
+    const pt = pointOn(center, angle, orbitR);
+    group.addChild(new paper.Path.Circle({
+      center: pt,
+      radius: 2.2 + snap.params.opacity * 1.4,
+      fillColor: paletteStroke(palette.primary, 0.55 + snap.params.opacity * 0.25),
+      strokeColor: paletteStroke(palette.secondary, 0.4),
+      strokeWidth: 0.5,
+    }));
+  });
+}
+
+/** Контур голоса — сегменты с толщиной/штрихом от VoiceMotifKind. */
 export function drawVoiceTrace(
   group: paper.Group,
   center: paper.Point,
@@ -201,27 +281,36 @@ export function drawVoiceTrace(
   }
 
   const trackR = R * 0.62;
-  const path = new paper.Path();
   const sampled = downsampleTrail(segments, 96);
 
-  sampled.forEach((seg, index) => {
-    const r = trackR * (0.78 + seg.radiusNorm * 0.22);
-    const pt = pointOn(center, seg.angle + params.pitchAngle * 0.08, r);
-    if (index === 0) {
-      path.moveTo(pt);
-    } else {
-      path.lineTo(pt);
-    }
-  });
+  for (let i = 1; i < sampled.length; i += 1) {
+    const prev = sampled[i - 1];
+    const seg = sampled[i];
+    const style = motifStrokeStyle(seg.kind, seg.variant);
+    const r0 = trackR * (0.78 + prev.radiusNorm * 0.22);
+    const r1 = trackR * (0.78 + seg.radiusNorm * 0.22);
+    const a0 = prev.angle + params.pitchAngle * 0.08;
+    const a1 = seg.angle + params.pitchAngle * 0.08;
 
-  path.strokeColor = paletteStroke(palette.secondary, 0.52 + params.opacity * 0.32);
-  path.strokeWidth = Math.max(0.75 + params.lineWidth * 0.35, 0.85);
-  path.strokeCap = 'round';
-  path.strokeJoin = 'round';
-  group.addChild(path);
+    const segment = new paper.Path.Line({
+      from: pointOn(center, a0, r0),
+      to: pointOn(center, a1, r1),
+      strokeColor: paletteStroke(palette.secondary, style.opacity + params.opacity * 0.18),
+      strokeWidth: Math.max(style.width + seg.lineWidth * 0.25, 0.65),
+      strokeCap: 'round',
+    });
+    if (style.dash) {
+      segment.dashArray = style.dash;
+    }
+    group.addChild(segment);
+  }
 
   const last = sampled[sampled.length - 1];
-  const tip = pointOn(center, last.angle + params.pitchAngle * 0.08, trackR * (0.78 + last.radiusNorm * 0.22));
+  const tip = pointOn(
+    center,
+    last.angle + params.pitchAngle * 0.08,
+    trackR * (0.78 + last.radiusNorm * 0.22),
+  );
   group.addChild(new paper.Path.Circle({
     center: tip,
     radius: 1.6 + params.opacity * 1.2,

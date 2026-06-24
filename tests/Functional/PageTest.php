@@ -50,6 +50,6 @@ final class PageTest extends WebTestCase
         yield 'about' => ['/about', 'О проекте'];
         yield 'ethics' => ['/ethics', 'Этика и конфиденциальность'];
         yield 'how' => ['/how', 'Как это работает'];
-        yield 'account login' => ['/account', 'Личный кабинет'];
+        yield 'account login' => ['/account', 'Своё место'];
     }
 }

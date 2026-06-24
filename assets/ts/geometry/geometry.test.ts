@@ -169,6 +169,93 @@ describe('VoiceProfile spectrum gain', () => {
   });
 });
 
+describe('session variety', () => {
+  it('shifts params deterministically per session', async () => {
+    const { applySessionVariety } = await import('../geometry/sessionVariety');
+    const base = {
+      radius: 128,
+      rays: 6,
+      rotationSpeed: 0,
+      hue: 260,
+      opacity: 0.7,
+      symmetry: 6,
+      breathRing: 0,
+      lineWidth: 1,
+      waveAmplitude: 0,
+      spiralTurns: 0,
+      dotCount: 4,
+      elementCount: 4,
+      pitchAngle: 0,
+    };
+    const a = applySessionVariety(base, 'vp_abc', 1_700_000_000_000);
+    const b = applySessionVariety(base, 'vp_abc', 1_700_000_000_000);
+    const c = applySessionVariety(base, 'vp_abc', 1_700_086_400_000);
+    expect(a.hue).toBe(b.hue);
+    expect(a.radius).not.toBe(base.radius);
+    expect(c.hue).not.toBe(a.hue);
+  });
+});
+
+describe('export readiness', () => {
+  it('blocks export without voice trail', async () => {
+    const { validateExportReadiness } = await import('../export/exportValidation');
+    const empty = validateExportReadiness({
+      timestamp: 0,
+      features: sampleFeatures(),
+      params: sampleParams(),
+      label: 'test',
+      pitchTrail: [],
+    });
+    expect(empty.ok).toBe(false);
+
+    const ready = validateExportReadiness({
+      timestamp: 0,
+      features: sampleFeatures(),
+      params: sampleParams(),
+      label: 'test',
+      pitchTrail: Array.from({ length: 6 }, (_, i) => ({
+        angle: i * 0.2,
+        radiusNorm: 0.5,
+        lineWidth: 1,
+        opacity: 0.6,
+        fold: 6,
+        width: 0.5,
+        kind: 'petal' as const,
+        variant: 0,
+      })),
+    });
+    expect(ready.ok).toBe(true);
+  });
+});
+
+describe('motif stroke', () => {
+  it('maps kinds to distinct stroke styles', async () => {
+    const { motifStrokeStyle } = await import('../geometry/voiceMandalaLayers');
+    const ray = motifStrokeStyle('ray');
+    const petal = motifStrokeStyle('petal');
+    expect(ray.width).not.toBe(petal.width);
+    expect(ray.dash?.length).toBeGreaterThan(0);
+  });
+});
+
+function sampleParams() {
+  return {
+    radius: 128,
+    rays: 6,
+    rotationSpeed: 0,
+    hue: 260,
+    opacity: 0.7,
+    symmetry: 6,
+    breathRing: 0,
+    lineWidth: 1,
+    waveAmplitude: 0,
+    spiralTurns: 0,
+    dotCount: 4,
+    elementCount: 4,
+    pitchAngle: 0,
+  };
+}
+
 function sampleFeatures(): AudioFeatures {
   return {
     rms: 0.12,

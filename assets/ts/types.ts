@@ -58,6 +58,13 @@ export interface FeatureSnapshot {
   pitchTrail?: PitchPoint[];
   /** Снимок спектра для слепка / экспорта. */
   spectrum?: number[];
+  sessionStarted?: number;
+  profileHash?: string;
+  processSnapshots?: FeatureSnapshot[];
+  /** Нормализованный уровень 0–1 для live/frozen EQ. */
+  levelNorm?: number;
+  /** Суммарное время активного голоса в сессии, мс. */
+  voiceMs?: number;
 }
 
 export type LabMode = 'live' | 'process';

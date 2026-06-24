@@ -5,6 +5,7 @@ import {
   exportMandalaSvg,
   sessionReportText,
 } from './mandalaExport';
+import type { VoiceProfileMetrics } from '../audio/VoiceProfile';
 import { triggerDownloadBlob } from './exportFiles';
 import { pngBytesFromDataUrl } from './exportValidation';
 
@@ -12,6 +13,7 @@ import { pngBytesFromDataUrl } from './exportValidation';
 export async function exportSessionFrames(
   snapshots: FeatureSnapshot[],
   style: GeometryStyle,
+  profile?: VoiceProfileMetrics,
 ): Promise<void> {
   if (snapshots.length === 0) {
     return;
@@ -31,7 +33,7 @@ export async function exportSessionFrames(
   const composite = blendSnapshots(snapshots);
   zip.file('frame-000-itog.png', pngBytesFromDataUrl(exportMandalaPng(composite, style)));
   zip.file('frame-000-itog.svg', exportMandalaSvg(composite, style));
-  zip.file('session-report.txt', sessionReportText(snapshots));
+  zip.file('session-report.txt', sessionReportText(snapshots, profile));
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
   triggerDownloadBlob(blob, 'sgl-session.zip');
@@ -47,6 +49,10 @@ function blendSnapshots(snapshots: FeatureSnapshot[]): FeatureSnapshot {
     label: 'Итог',
     pitchTrail: mergedTrail,
     spectrum: avgSpectrum,
+    processSnapshots: [...snapshots],
+    sessionStarted: snapshots[0]?.sessionStarted,
+    profileHash: snapshots[0]?.profileHash,
+    voiceMs: snapshots.reduce((sum, s) => sum + (s.voiceMs ?? 0), 0),
   };
 }
 

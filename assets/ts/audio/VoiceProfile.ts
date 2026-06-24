@@ -2,6 +2,7 @@ import type { AudioFeatures } from '../types';
 
 const STORAGE_KEY = 'sgl-voice-profile';
 export const CALIBRATION_DURATION_MS = 12000;
+export const SOFT_RECAL_DAYS = 14;
 
 export type NormalizedFeatures = {
   rms: number;
@@ -20,6 +21,18 @@ type StoredProfile = {
   centroidMax: number;
   sampleCount: number;
   calibrated: boolean;
+  calibratedAt?: number;
+};
+
+export type VoiceProfileMetrics = {
+  hash: string;
+  f0Min: number;
+  f0Max: number;
+  rmsMin: number;
+  rmsMax: number;
+  centroidMin: number;
+  centroidMax: number;
+  calibratedAt: number | null;
 };
 
 const CALIBRATION_PROMPTS = [
@@ -39,6 +52,7 @@ export class VoiceProfile {
   private centroidMax = 3200;
   private sampleCount = 0;
   private calibrated = false;
+  private calibratedAt: number | null = null;
 
   private calibrationStarted = 0;
   private calibrating = false;
@@ -154,7 +168,7 @@ export class VoiceProfile {
       : 0.5;
 
     const rmsLinear = clamp((features.rms - this.rmsMin) / rmsRange, 0, 1);
-    const rms = clamp(0.1 + Math.pow(rmsLinear, 0.58) * 0.9, 0, 1);
+    const rms = Math.pow(rmsLinear, 0.46);
 
     return {
       rms,
@@ -170,7 +184,7 @@ export class VoiceProfile {
     const rmsMax = Math.max(this.rmsMax, features.rms, 0.05);
     const range = Math.max(rmsMax - rmsMin, 0.02);
     const rmsLinear = clamp((features.rms - rmsMin) / range, 0, 1);
-    const rms = clamp(0.06 + Math.pow(rmsLinear, 0.52) * 0.94, 0, 1);
+    const rms = Math.pow(rmsLinear, 0.44);
 
     return {
       rms,
@@ -200,6 +214,28 @@ export class VoiceProfile {
 
   getHash(): string {
     return this.hash();
+  }
+
+  getMetrics(): VoiceProfileMetrics {
+    return {
+      hash: this.hash(),
+      f0Min: this.f0Min,
+      f0Max: this.f0Max,
+      rmsMin: this.getRmsReference().min,
+      rmsMax: this.getRmsReference().max,
+      centroidMin: this.centroidMin,
+      centroidMax: this.centroidMax,
+      calibratedAt: this.calibratedAt,
+    };
+  }
+
+  /** Мягкая подсказка перекалибровки без сброса истории. */
+  suggestSoftRecalibration(maxDays = SOFT_RECAL_DAYS): boolean {
+    if (!this.calibrated || this.calibrating || !this.calibratedAt) {
+      return false;
+    }
+    const ageMs = Date.now() - this.calibratedAt;
+    return ageMs > maxDays * 24 * 60 * 60 * 1000;
   }
 
   /** Калиброванный диапазон громкости (сырой RMS). */
@@ -270,6 +306,7 @@ export class VoiceProfile {
     }
     this.calibrating = false;
     this.calibrated = true;
+    this.calibratedAt = Date.now();
     this.persist();
   }
 
@@ -301,6 +338,7 @@ export class VoiceProfile {
       centroidMax: this.centroidMax,
       sampleCount: this.sampleCount,
       calibrated: this.calibrated,
+      calibratedAt: this.calibratedAt ?? undefined,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
@@ -323,6 +361,7 @@ export class VoiceProfile {
       this.centroidMax = data.centroidMax ?? 3200;
       this.sampleCount = data.sampleCount;
       this.calibrated = data.calibrated ?? (data.f0Max > data.f0Min + 20);
+      this.calibratedAt = data.calibratedAt ?? null;
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     }

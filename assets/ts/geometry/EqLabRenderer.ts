@@ -15,7 +15,7 @@ function defaultParams(): GeometryParams {
     rays: 6,
     rotationSpeed: 0,
     hue: 210,
-    opacity: 0.5,
+    opacity: 0,
     symmetry: 6,
     breathRing: 0,
     lineWidth: 0.75,
@@ -98,7 +98,7 @@ export class EqLabRenderer implements LabRenderer {
     this.displayParams = snapshot.params;
     this.applyStoredSpectrum(snapshot.spectrum);
     this.frequencyHz = snapshot.features.frequency;
-    this.rmsNorm = Math.min(snapshot.params.opacity, 1);
+    this.rmsNorm = snapshot.levelNorm ?? 0;
     this.live = false;
   }
 

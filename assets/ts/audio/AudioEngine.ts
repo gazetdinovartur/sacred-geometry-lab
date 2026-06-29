@@ -16,7 +16,7 @@ export class AudioEngine {
     this.context = new AudioContext();
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.52;
+    this.analyser.smoothingTimeConstant = 0.44;
 
     this.source = this.context.createMediaStreamSource(this.stream);
     this.source.connect(this.analyser);

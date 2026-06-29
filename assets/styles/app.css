@@ -320,6 +320,12 @@ a:hover {
   margin-top: 2.5rem;
 }
 
+.page__meta {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
 .page--center {
   text-align: center;
 }

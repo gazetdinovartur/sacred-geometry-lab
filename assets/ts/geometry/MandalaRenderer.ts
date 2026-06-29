@@ -1,7 +1,7 @@
 import paper from 'paper';
 import type { LabRenderer } from './LabRenderer';
 import type { AudioFeatures, FeatureSnapshot, GeometryParams, PitchPoint } from '../types';
-import { downsampleBars, EQ_BAND_COUNT } from './EqLabRenderer';
+import { downsampleBars, SPECTRUM_EXPORT_BANDS } from './EqLabRenderer';
 import { blendGeometryParams } from './SymmetryResolver';
 import { buildMandalaPalette, paletteStroke, type MandalaPalette } from './mandalaPalette';
 import {
@@ -231,7 +231,7 @@ export class MandalaRenderer implements LabRenderer {
     if (processSnapshots?.length) {
       drawProcessSpectrumLayers(this.group, center, R, processSnapshots, params, this.palette);
     } else if (spectrum?.length) {
-      const bands = Array.from(downsampleBars(new Float32Array(spectrum), EQ_BAND_COUNT));
+      const bands = Array.from(downsampleBars(new Float32Array(spectrum), SPECTRUM_EXPORT_BANDS));
       drawSpectrumRingMarkers(this.group, center, R, bands, energy, params, stroke);
     }
 

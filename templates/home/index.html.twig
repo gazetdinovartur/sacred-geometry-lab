@@ -81,20 +81,10 @@
                     <div class="widget__fill" :style="`width: ${$store.lab.rmsNorm}%`"></div>
                 </div>
             </div>
-            <div class="widget widget--pitch" title="Основная частота">
-                <span class="widget__label">Частота</span>
-                <span class="widget__desc">тон → метка Hz</span>
-                <span class="widget__value" x-text="$store.lab.frequencyLabel"></span>
-            </div>
-            <div class="widget widget--symmetry" title="Ритм → симметрия">
-                <span class="widget__label">Симметрия</span>
-                <span class="widget__desc">ритм → N (в экспорте)</span>
-                <span class="widget__value" x-text="$store.lab.symmetry"></span>
-            </div>
-            <div class="widget widget--motif" title="Последний акцент голоса">
-                <span class="widget__label">Акцент</span>
-                <span class="widget__desc">изменение → метка</span>
-                <span class="widget__value" x-text="$store.lab.activeMotif"></span>
+            <div class="widget widget--pitch" title="Нота и октава">
+                <span class="widget__label">Тон</span>
+                <span class="widget__desc">нота · октава</span>
+                <span class="widget__value" x-text="$store.lab.toneLabel"></span>
             </div>
             <div class="widget widget--silence" title="Тишина — Rest & Breath">
                 <span class="widget__label">Покой</span>
@@ -180,7 +170,7 @@
                     <select class="export-control"
                             x-model.number="$store.lab.exportSize">
                         <option :value="800">800×800</option>
-                        <option :value="1600">1600×1600</option>
+                        <option :value="1600" selected>1600×1600</option>
                         <option :value="3200">3200×3200</option>
                     </select>
                 </label>

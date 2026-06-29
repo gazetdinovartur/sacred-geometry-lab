@@ -22,6 +22,12 @@ final class PageController extends AbstractController
         return $this->render('pages/ethics.html.twig');
     }
 
+    #[Route('/privacy', name: 'privacy')]
+    public function privacy(): Response
+    {
+        return $this->render('pages/privacy.html.twig');
+    }
+
     #[Route('/how', name: 'how')]
     public function how(): Response
     {

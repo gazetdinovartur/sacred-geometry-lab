@@ -6,6 +6,20 @@ import { VoiceProfile, CALIBRATION_DURATION_MS } from '../audio/VoiceProfile';
 import { CalibrationRunner } from '../lab/CalibrationRunner';
 import { pngBytesFromDataUrl, sanitizeGeometryParams } from '../export/exportValidation';
 import type { AudioFeatures } from '../types';
+import { hzToPitch, formatPitchLabel } from '../audio/PitchNotation';
+
+describe('PitchNotation', () => {
+  it('maps A4 to A4', () => {
+    const pitch = hzToPitch(440);
+    expect(pitch?.note).toBe('A');
+    expect(pitch?.octave).toBe(4);
+    expect(pitch?.label).toBe('A4');
+  });
+
+  it('formats pitch label with cents when detuned', () => {
+    expect(formatPitchLabel(442, 0.8)).toMatch(/A4/);
+  });
+});
 
 describe('SymmetryResolver', () => {
   it('maps rhythm onsets to symmetry', () => {

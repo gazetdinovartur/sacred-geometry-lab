@@ -263,21 +263,52 @@ export class FeatureExtractor {
     return Math.min(peaks, 8);
   }
 
-  /** Нормализованные полоски спектра для 3D-кольца (0…1). */
+  /** Логарифмические полоски 60 Hz–8 kHz: голос + акустика (0…1). */
   getSpectrumBars(barCount: number): Float32Array {
     this.analyser.getByteFrequencyData(this.freqData as Uint8Array<ArrayBuffer>);
     const bars = new Float32Array(barCount);
-    const binSize = this.freqData.length / barCount;
+    const sampleRate = this.analyser.context.sampleRate;
+    const binWidth = sampleRate / (this.freqData.length * 2);
+    const minHz = 60;
+    const maxHz = 8000;
+    const logMin = Math.log(minHz);
+    const logMax = Math.log(maxHz);
+    const logSpan = logMax - logMin;
+
     for (let i = 0; i < barCount; i += 1) {
+      const f0 = Math.exp(logMin + (i / barCount) * logSpan);
+      const f1 = Math.exp(logMin + ((i + 1) / barCount) * logSpan);
+      const start = Math.max(1, Math.floor(f0 / binWidth));
+      const end = Math.min(this.freqData.length - 1, Math.ceil(f1 / binWidth));
       let sum = 0;
-      const start = Math.floor(i * binSize);
-      const end = Math.floor((i + 1) * binSize);
-      for (let j = start; j < end; j += 1) {
-        sum += this.freqData[j];
+      let weightSum = 0;
+      for (let j = start; j <= end; j += 1) {
+        const hz = j * binWidth;
+        const weight = voiceBandWeight(hz);
+        sum += (this.freqData[j] ?? 0) * weight;
+        weightSum += weight;
       }
-      const span = Math.max(end - start, 1);
-      bars[i] = sum / (span * 255);
+      const span = Math.max(weightSum, 1);
+      const raw = sum / (span * 255);
+      bars[i] = Math.min(Math.pow(raw, 0.82) * 1.05, 1);
     }
     return bars;
   }
+}
+
+/** Подчёркивает формантный диапазон голоса, не режет высокие гармоники инструментов. */
+function voiceBandWeight(hz: number): number {
+  if (hz < 120) {
+    return 0.72;
+  }
+  if (hz < 280) {
+    return 0.88 + (hz - 120) / 160 * 0.18;
+  }
+  if (hz <= 3400) {
+    return 1.08;
+  }
+  if (hz <= 6000) {
+    return 1.05 - (hz - 3400) / 2600 * 0.28;
+  }
+  return 0.82;
 }

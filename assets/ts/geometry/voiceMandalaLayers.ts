@@ -1,7 +1,7 @@
 import paper from 'paper';
 import type { AudioFeatures, FeatureSnapshot, GeometryParams, PitchPoint, VoiceMotifKind } from '../types';
 import type { MandalaPalette } from './mandalaPalette';
-import { paletteStroke, chakraHueFromT, chakraHueFromHz, chakraPaperColor, ringBandColor, type MandalaPalette } from './mandalaPalette';
+import { paletteStroke, chakraHueFromT, chakraHueFromHz, chakraPaperColor, ringBandColor } from './mandalaPalette';
 import { u } from './renderUnits';
 
 export const EXPORT_BANDS = 8;

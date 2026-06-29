@@ -3,7 +3,7 @@ import type { FeatureSnapshot, PitchPoint } from '../types';
 import type { MandalaPalette } from './mandalaPalette';
 import { paletteStroke, ringBandColor, spiralChakraColor, binduChakraColor } from './mandalaPalette';
 import { u } from './renderUnits';
-import { downsampleBars, EQ_BAND_COUNT } from './EqLabRenderer';
+import { downsampleBars, SPECTRUM_EXPORT_BANDS } from './EqLabRenderer';
 import { downsampleTrail } from './voiceMandalaLayers';
 import {
   buildDotMandalaStats,
@@ -474,10 +474,10 @@ function stretchLevels(levels: number[]): number[] {
 
 function spectrumBands(snapshot: FeatureSnapshot): number[] {
   if (!snapshot.spectrum?.length) {
-    return new Array(EQ_BAND_COUNT).fill(0.32);
+    return new Array(SPECTRUM_EXPORT_BANDS).fill(0.32);
   }
   return normalizeBandLevels(
-    Array.from(downsampleBars(new Float32Array(snapshot.spectrum), EQ_BAND_COUNT)),
+    Array.from(downsampleBars(new Float32Array(snapshot.spectrum), SPECTRUM_EXPORT_BANDS)),
   );
 }
 

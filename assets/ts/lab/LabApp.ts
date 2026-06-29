@@ -1,6 +1,6 @@
 import Alpine from 'alpinejs';
 import { AudioEngine } from '../audio/AudioEngine';
-import { EqLabRenderer, downsampleBars, EQ_BAND_COUNT } from '../geometry/EqLabRenderer';
+import { EqLabRenderer, downsampleBars, SPECTRUM_EXPORT_BANDS } from '../geometry/EqLabRenderer';
 import type { LabRenderer } from '../geometry/LabRenderer';
 import { AudioSessionLoop } from '../modes/AudioSessionLoop';
 import { ProcessMode } from '../modes/ProcessMode';
@@ -15,11 +15,11 @@ import { VoiceProfile, type NormalizedFeatures } from '../audio/VoiceProfile';
 import { CalibrationRunner } from './CalibrationRunner';
 import { PitchContour } from '../geometry/PitchContour';
 import { motifLabel } from '../geometry/MotifPicker';
-import { symmetryLabel } from '../geometry/SymmetryResolver';
 import { exportSessionFrames } from '../export/exportFrames';
 import type { ExportAction, ExportSize, ExportStyle } from '../export/exportOptions';
 import { DEFAULT_EXPORT_SIZE, exportActionLabel } from '../export/exportOptions';
 import type { CinemaSessionBundle, FeatureSnapshot, LabMode, TimelineEntry } from '../types';
+import { formatPitchLabel } from '../audio/PitchNotation';
 import { SessionCapture } from '../export/SessionCapture';
 
 const WARMUP_MS = 900;
@@ -45,10 +45,8 @@ type LabStore = {
   status: string;
   rms: number;
   rmsNorm: number;
-  frequencyLabel: string;
-  symmetry: string;
+  toneLabel: string;
   silenceLabel: string;
-  activeMotif: string;
   timeline: TimelineEntry[];
   activeSnapshot: number | null;
   primaryLabel: () => string;
@@ -110,10 +108,8 @@ export class LabApp {
     status: '',
     rms: 0,
     rmsNorm: 0,
-    frequencyLabel: '—',
-    symmetry: '6',
+    toneLabel: '—',
     silenceLabel: '—',
-    activeMotif: '—',
     timeline: [],
     activeSnapshot: null,
 
@@ -294,6 +290,14 @@ export class LabApp {
     this.audio.stop();
     this.store.isActive = false;
     this.store.isPaused = false;
+
+    if (this.lastSnapshot && this.renderer) {
+      this.renderer.renderSnapshot(this.lastSnapshot);
+      if (this.store.mode === 'live') {
+        this.flashStatus('Зафиксирован последний кадр — можно экспортировать');
+      }
+    }
+
     this.store.status = '';
 
     this.normalizeExportAction();
@@ -324,8 +328,7 @@ export class LabApp {
     this.store.status = '';
     this.store.rms = 0;
     this.store.rmsNorm = 0;
-    this.store.frequencyLabel = '—';
-    this.store.symmetry = '6';
+    this.store.toneLabel = '—';
     this.store.silenceLabel = '—';
     this.store.timeline = [];
     this.store.activeSnapshot = null;
@@ -479,7 +482,6 @@ export class LabApp {
     const motifKind = this.pitchContour.push(norm, frame.features, active, params.symmetry);
     if (motifKind) {
       const label = motifLabel(motifKind);
-      this.store.activeMotif = label;
       const now = frame.timestamp;
       if (now - this.lastMotifFlash > 700) {
         this.lastMotifFlash = now;
@@ -492,7 +494,10 @@ export class LabApp {
       ...frame,
       params,
       pitchTrail: liveTrail,
-      spectrum: Array.from(downsampleBars(this.sessionLoop?.getSpectrumBars(64) ?? new Float32Array(0), EQ_BAND_COUNT)),
+      spectrum: Array.from(downsampleBars(
+        this.sessionLoop?.getSpectrumBars(64) ?? new Float32Array(0),
+        SPECTRUM_EXPORT_BANDS,
+      )),
       sessionStarted: this.sessionStarted,
       profileHash: this.voiceProfile.getHash(),
       levelNorm,
@@ -501,10 +506,7 @@ export class LabApp {
 
     this.lastSnapshot = snapshot;
     this.store.hasSession = true;
-    this.store.frequencyLabel = frame.features.frequency > 0
-      ? `${Math.round(frame.features.frequency)} Hz${frame.features.pitchConfidence < 0.45 ? ' · текстура' : ''} · ${Math.round(norm.pitch * 100)}%`
-      : '—';
-    this.store.symmetry = symmetryLabel(params.symmetry);
+    this.store.toneLabel = formatPitchLabel(frame.features.frequency, frame.features.pitchConfidence);
     this.store.silenceLabel = formatSilenceLabel(frame.features.silenceRatio, frame.features.pauseMs);
 
     if (performance.now() < this.warmUpUntil && !frame.features.isActive && !this.geometryPipeline.hasHeldForm()) {
@@ -562,10 +564,18 @@ export class LabApp {
         ?? (liveSnapshot.features.isActive
           ? this.voiceProfile.normalizeFeatures(liveSnapshot.features).rms
           : 0);
+      this.renderer.setPitchInfo(
+        liveSnapshot.features.frequency,
+        liveSnapshot.features.pitchConfidence,
+      );
       this.renderer.setLiveMetrics(
         liveSnapshot.features.frequency,
         levelNorm,
         liveSnapshot.features.isActive,
+      );
+      this.renderer.setRhythmPulse(
+        liveSnapshot.features.spectralFlux,
+        levelNorm,
       );
     }
 
@@ -590,6 +600,8 @@ export class LabApp {
       frame.features.isActive ? norm.rms : 0,
       frame.features.isActive,
     );
+    this.renderer.setPitchInfo(frame.features.frequency, frame.features.pitchConfidence);
+    this.renderer.setRhythmPulse(frame.features.spectralFlux, frame.features.isActive ? norm.rms : 0);
 
     if (calibrating) {
       this.renderer.setCalibrationState(

@@ -3,9 +3,23 @@
 {% block title %}Страница не найдена — Sacred Geometry Lab{% endblock %}
 
 {% block body %}
-<article class="page prose page--center">
-    <h1>404</h1>
-    <p>Этой страницы нет. Лаборатория — на главной.</p>
-    <p><a href="{{ path('home') }}" class="btn btn--primary">На главную</a></p>
+<article class="page page-error page--center">
+    <div class="page-error__sigil" aria-hidden="true">
+        <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="60" cy="60" r="54" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+            <circle cx="60" cy="60" r="36" stroke="currentColor" stroke-width="1" opacity="0.55"/>
+            <circle cx="60" cy="60" r="18" stroke="currentColor" stroke-width="1" opacity="0.75"/>
+            <circle cx="60" cy="60" r="3" fill="currentColor" opacity="0.9"/>
+        </svg>
+    </div>
+
+    <p class="page-error__code">404</p>
+    <h1 class="page-error__title">Здесь тишина</h1>
+    <p class="page-error__lead">Такой страницы нет — возможно, ссылка устарела или путь набран неверно.</p>
+
+    <div class="page-error__actions">
+        <a href="{{ path('home') }}" class="btn btn--primary">Как ты сейчас?</a>
+        <a href="{{ path('about') }}" class="btn btn--ghost">О проекте</a>
+    </div>
 </article>
 {% endblock %}

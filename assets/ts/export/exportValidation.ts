@@ -73,7 +73,7 @@ export function validateExportReadiness(snapshot: FeatureSnapshot): ExportReadin
   if (trail.length === 0) {
     return {
       ok: false,
-      message: 'Мало данных — говорите дольше перед экспортом',
+      message: 'Мало данных — говори дольше перед экспортом',
     };
   }
 

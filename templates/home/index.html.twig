@@ -46,7 +46,7 @@
                 <p class="calibration-panel__hint"
                    x-show="$store.lab.rmsNorm > 5"
                    x-cloak>
-                    Слышу вас — круг показывает уровень и спектр
+                    Слышу тебя — круг показывает уровень и спектр
                 </p>
                 <button type="button"
                         class="btn btn--ghost btn--sm calibration-panel__skip"
@@ -106,7 +106,7 @@
             </div>
             <p class="process-panel__hint"
                x-show="$store.lab.isActive && !$store.lab.timeline.length">
-                Говорите и молчите — этап каждые ~12 с, пока не «Стоп».
+                Говори и молчи — этап каждые ~12 с, пока не «Стоп».
             </p>
             <p class="process-panel__hint"
                x-show="!$store.lab.isActive && $store.lab.activeSnapshot === -1">
@@ -133,7 +133,7 @@
                  x-show="$store.lab?.micDenied"
                  x-cloak>
                 <p class="mic-permission__text">
-                    Без микрофона лаборатория не слышит вас. Если вы нажали «Запретить» — разрешите доступ в настройках браузера для этого сайта.
+                    Без микрофона я тебя не слышу. Если ты нажал «Запретить» — разреши доступ в настройках браузера для этого сайта.
                 </p>
                 <button type="button"
                         class="btn btn--primary"

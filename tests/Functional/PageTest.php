@@ -40,7 +40,7 @@ final class PageTest extends WebTestCase
 
         self::assertResponseIsSuccessful();
         self::assertStringContainsString('Этика и конфиденциальность', $client->getResponse()->getContent() ?: '');
-        self::assertStringContainsString('Мы не храним сказанные слова', $client->getResponse()->getContent() ?: '');
+        self::assertStringContainsString('Я не храню сказанные слова', $client->getResponse()->getContent() ?: '');
     }
 
     public function testUnknownRouteReturns404(): void

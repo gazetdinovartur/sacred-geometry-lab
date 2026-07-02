@@ -145,8 +145,10 @@
 
 .account-guest__card-title {
   margin: 0 0 0.75rem;
-  font-size: 1rem;
+  font-size: 1.125rem;
   font-weight: 500;
+  color: var(--text);
+  line-height: 1.35;
 }
 
 .account-guest__list {

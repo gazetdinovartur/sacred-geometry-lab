@@ -300,7 +300,7 @@ export class LabApp {
 
     if (action === 'video') {
       if (!this.canExportVideoData()) {
-        this.flashStatus('3D-видео — говорите дольше (~10 с) или Process с 2 этапами');
+        this.flashStatus('3D-видео — говори дольше (~10 с) или Process с 2 этапами');
         return;
       }
       if (!LabApp.canExportVideo()) {
@@ -311,7 +311,7 @@ export class LabApp {
 
     if (action === 'cinema') {
       if (!this.canExportCinemaData()) {
-        this.flashStatus('Видео мандала — говорите дольше (~15 с), Chrome или Firefox');
+        this.flashStatus('Видео мандала — говори дольше (~15 с), Chrome или Firefox');
         return;
       }
     }
@@ -615,7 +615,7 @@ export class LabApp {
     try {
       await this.ensureMicLive();
       this.startCalibrationFlow(false);
-      this.flashStatus('Калибровка — говорите по подсказкам в круге');
+      this.flashStatus('Калибровка — говори по подсказкам в круге');
     } catch (error) {
       this.handleMicError(error);
     }
@@ -656,8 +656,8 @@ export class LabApp {
     this.store.calibrationProgress = 0;
     this.store.calibrationPrompt = 'Тихо, как шёпот — несколько секунд';
     this.store.status = firstTime
-      ? 'Первый раз — калибровка под ваш голос (~12 сек)'
-      : 'Калибровка под ваш голос (~12 сек)';
+      ? 'Первый раз — калибровка под твой голос (~12 сек)'
+      : 'Калибровка под твой голос (~12 сек)';
     this.beginCalibrationVisual();
 
     this.calibration.start(
@@ -1175,7 +1175,7 @@ export class LabApp {
 
   private async exportSessionVideo(): Promise<void> {
     if (!this.canExportVideoData()) {
-      this.flashStatus('3D-видео — говорите дольше (~10 с) или Process с 2 этапами');
+      this.flashStatus('3D-видео — говори дольше (~10 с) или Process с 2 этапами');
       return;
     }
 
@@ -1218,7 +1218,7 @@ export class LabApp {
 
   private async exportSessionCinema(): Promise<void> {
     if (!this.canExportCinemaData()) {
-      this.flashStatus('Видео мандала — говорите дольше (~15 с), Chrome или Firefox');
+      this.flashStatus('Видео мандала — говори дольше (~15 с), Chrome или Firefox');
       return;
     }
 

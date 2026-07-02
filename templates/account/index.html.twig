@@ -19,10 +19,10 @@
                     <p class="flash flash--error">{{ message }}</p>
                 {% endfor %}
                 <p class="account-header__lead" x-show="userLabel" x-cloak>
-                    <span x-text="userLabel"></span>, здесь хранятся ваши сохранённые узоры.
+                    <span x-text="userLabel"></span>, здесь хранятся твои сохранённые узоры.
                 </p>
                 <p class="account-header__lead" x-show="!userLabel && patterns.length > 0" x-cloak>
-                    Здесь хранятся ваши сохранённые узоры.
+                    Здесь хранятся твои сохранённые узоры.
                 </p>
             </div>
             <div class="account-header__actions">
@@ -49,8 +49,8 @@
                 <h2 class="account-empty__title" x-text="emptyStateTitle()"></h2>
                 <p class="account-empty__text" x-text="emptyStateText()"></p>
                 <ol class="account-empty__steps">
-                    <li>На главной проведите сессию и нажмите «Стоп».</li>
-                    <li>Выберите «Сохранить в своё место» в меню экспорта.</li>
+                    <li>На главной проведи сессию и нажми «Стоп».</li>
+                    <li>Выбери «Сохранить в своё место» в меню экспорта.</li>
                     <li>Узор появится здесь — с датой, названием и просмотром.</li>
                 </ol>
                 <p class="account-empty__note">

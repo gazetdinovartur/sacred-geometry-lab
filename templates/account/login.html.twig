@@ -13,6 +13,12 @@
         <p class="flash flash--error">{{ message }}</p>
     {% endfor %}
 
+    {% if app.request.query.get('intent') == 'save' %}
+        <p class="account-guest__pending" id="sgl-pending-save-hint" hidden>
+            После входа последний узор из сессии сохранится автоматически.
+        </p>
+    {% endif %}
+
     <section class="account-guest__card">
         <h2 class="account-guest__card-title">Что здесь будет</h2>
         <ul class="account-guest__list">
@@ -34,4 +40,18 @@
         После входа, если узоров ещё нет, увидите подсказку — как сохранить первую мандалу.
     </p>
 </article>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    {% if app.request.query.get('intent') == 'save' %}
+        <script>
+            (function () {
+                var hint = document.getElementById('sgl-pending-save-hint');
+                if (hint && sessionStorage.getItem('sgl-pending-pattern')) {
+                    hint.hidden = false;
+                }
+            })();
+        </script>
+    {% endif %}
 {% endblock %}

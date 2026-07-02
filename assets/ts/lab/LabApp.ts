@@ -10,6 +10,7 @@ import { formatSilenceLabel } from '../geometry/SilenceMapper';
 import { downloadPng, downloadSvg } from '../export/exportFiles';
 import { mandalaPngFilename, mandalaSvgFilename } from '../export/exportNames';
 import { exportMandalaPng, exportMandalaSvg } from '../export/mandalaExport';
+import { storePendingPatternSave } from '../export/pendingPatternSave';
 import { canBuildFlightVideo } from '../export/flightVideoPlan';
 import { validateExportReadiness } from '../export/exportValidation';
 import { VoiceProfile, type NormalizedFeatures } from '../audio/VoiceProfile';
@@ -1212,7 +1213,8 @@ export class LabApp {
       });
 
       if (response.status === 401) {
-        window.location.href = '/account';
+        storePendingPatternSave(payload);
+        window.location.href = '/account?intent=save';
         return;
       }
 

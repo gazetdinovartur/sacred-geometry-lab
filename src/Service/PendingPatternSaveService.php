@@ -29,12 +29,17 @@ final class PendingPatternSaveService
 
     public function consumeFromSession(Request $request, User $user, EntityManagerInterface $entityManager): ?Pattern
     {
-        $payload = $request->getSession()->get(self::SESSION_KEY);
-        if (!is_array($payload)) {
+        $session = $request->getSession();
+        if (!$session->has(self::SESSION_KEY)) {
             return null;
         }
 
-        $request->getSession()->remove(self::SESSION_KEY);
+        $payload = $session->get(self::SESSION_KEY);
+        $session->remove(self::SESSION_KEY);
+
+        if (!is_array($payload)) {
+            return null;
+        }
 
         $pattern = $this->createPattern($user, $payload);
         $entityManager->persist($pattern);

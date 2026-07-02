@@ -2,7 +2,7 @@ import JSZip from 'jszip';
 import { DEFAULT_EXPORT_SIZE, exportStyleLabel } from '../export/exportOptions';
 import { downloadPng, downloadSvg, svgToPngDataUrl, triggerDownloadBlob } from '../export/exportFiles';
 import { patternsPngZipFilename } from '../export/exportNames';
-import { flushPendingPatternSave, hasPendingPatternSave } from '../export/pendingPatternSave';
+import { clearPendingPatternSave } from '../export/pendingPatternSave';
 import { pngBytesFromDataUrl } from '../export/exportValidation';
 
 export type SavedPattern = {
@@ -186,22 +186,8 @@ export function accountPage(): AccountPageData {
     downloadingArchive: false,
 
     init(): void {
-      void this.resumePendingSave();
+      clearPendingPatternSave();
       scrollToHighlightedPattern();
-    },
-
-    async resumePendingSave(): Promise<void> {
-      if (!hasPendingPatternSave()) {
-        return;
-      }
-
-      const saved = await flushPendingPatternSave();
-      if (saved) {
-        window.location.replace(`/account#pattern-${saved.id}`);
-        return;
-      }
-
-      window.alert('Не удалось сохранить узор после входа. Попробуйте ещё раз с главной.');
     },
 
     styleLabel: exportStyleLabel,

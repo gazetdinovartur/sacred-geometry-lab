@@ -24,6 +24,11 @@ import { DEFAULT_EXPORT_SIZE, exportActionLabel } from '../export/exportOptions'
 import type { CinemaSessionBundle, FeatureSnapshot, LabMode, TimelineEntry } from '../types';
 import { formatPitchLabel } from '../audio/PitchNotation';
 import { SessionCapture } from '../export/SessionCapture';
+import {
+  clearLabSession,
+  loadLabSession,
+  saveLabSession,
+} from './labSessionPersistence';
 
 const WARMUP_MS = 900;
 const STATUS_FLASH_MS = 1800;
@@ -165,6 +170,7 @@ export class LabApp {
 
     requestAnimationFrame(() => {
       this.renderer?.resize();
+      this.restorePersistedSession();
       this.refreshCanvas();
     });
 
@@ -183,6 +189,7 @@ export class LabApp {
     }
 
     this.refreshExportActions();
+    window.addEventListener('pagehide', () => this.persistCurrentSessionIfNeeded());
   }
 
   private primaryLabel(): string {
@@ -508,9 +515,63 @@ export class LabApp {
     this.store.exportSize = DEFAULT_EXPORT_SIZE;
     this.exportQueue = [];
     this.refreshExportActions();
+    this.persistCurrentSessionIfNeeded();
+  }
+
+  private persistCurrentSessionIfNeeded(): void {
+    if (!this.lastSnapshot || !this.store.hasSession) {
+      return;
+    }
+
+    saveLabSession({
+      mode: this.store.mode,
+      exportStyle: this.store.exportStyle,
+      frozenIndex: this.frozenIndex,
+      activeSnapshot: this.store.activeSnapshot,
+      lastSnapshot: structuredClone(this.lastSnapshot),
+      processSnapshots: this.processMode?.getSnapshots().map((s) => structuredClone(s)) ?? [],
+      composite: this.processMode?.getComposite()
+        ? structuredClone(this.processMode.getComposite()!)
+        : null,
+      pitchTrail: this.pitchContour.clonePoints(),
+      voiceAccumMs: this.voiceAccumMs,
+      sessionStarted: this.sessionStarted,
+      toneLabel: this.store.toneLabel,
+      silenceLabel: this.store.silenceLabel,
+      rmsNorm: this.store.rmsNorm,
+    });
+  }
+
+  private restorePersistedSession(): void {
+    const persisted = loadLabSession();
+    if (!persisted) {
+      return;
+    }
+
+    this.lastSnapshot = persisted.lastSnapshot;
+    this.frozenIndex = persisted.frozenIndex;
+    this.sessionStarted = persisted.sessionStarted;
+    this.voiceAccumMs = persisted.voiceAccumMs;
+    this.pitchContour.setPoints(persisted.pitchTrail);
+    this.processMode?.restoreState(persisted.processSnapshots, persisted.composite);
+
+    this.store.mode = persisted.mode;
+    this.store.exportStyle = persisted.exportStyle;
+    this.store.hasSession = true;
+    this.store.isActive = false;
+    this.store.isPaused = false;
+    this.store.activeSnapshot = persisted.activeSnapshot;
+    this.store.toneLabel = persisted.toneLabel;
+    this.store.silenceLabel = persisted.silenceLabel;
+    this.store.rmsNorm = persisted.rmsNorm;
+
+    this.syncTimeline();
+    this.refreshExportActions();
+    this.flashStatus('Последняя сессия — можно экспортировать или начать сначала');
   }
 
   private resetSession(): void {
+    clearLabSession();
     this.calibration.abort();
     this.sessionLoop?.stop();
     this.audio.stop();
@@ -1232,6 +1293,8 @@ export class LabApp {
 
     this.beginExportProgress('save', 'Сохранение · отправляем…');
     try {
+      this.persistCurrentSessionIfNeeded();
+
       const response = await fetch('/api/patterns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

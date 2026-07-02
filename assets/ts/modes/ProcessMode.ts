@@ -26,6 +26,16 @@ export class ProcessMode {
     this.lastCentroid = 0;
   }
 
+  restoreState(snapshots: FeatureSnapshot[], composite: FeatureSnapshot | null): void {
+    this.snapshots = snapshots.map((s) => structuredClone(s));
+    this.composite = composite ? structuredClone(composite) : null;
+
+    const last = this.snapshots.at(-1);
+    this.lastCapture = last?.timestamp ?? 0;
+    this.sessionStart = this.snapshots[0]?.timestamp ?? 0;
+    this.lastCentroid = last?.features.spectralCentroid ?? 0;
+  }
+
   beginSession(): void {
     this.sessionStart = performance.now();
     this.lastCapture = 0;

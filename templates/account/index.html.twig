@@ -12,6 +12,12 @@
         <div class="account-header">
             <div class="account-header__intro">
                 <h1>Своё место</h1>
+                {% for message in app.flashes('success') %}
+                    <p class="flash flash--success">{{ message }}</p>
+                {% endfor %}
+                {% for message in app.flashes('error') %}
+                    <p class="flash flash--error">{{ message }}</p>
+                {% endfor %}
                 <p class="account-header__lead" x-show="userLabel" x-cloak>
                     <span x-text="userLabel"></span>, здесь хранятся ваши сохранённые узоры.
                 </p>

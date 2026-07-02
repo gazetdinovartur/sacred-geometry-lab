@@ -1,3 +1,5 @@
+import { MicrophoneAccessError, classifyGetUserMediaError } from './microphoneAccess';
+
 export class AudioEngine {
   private context: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
@@ -12,7 +14,11 @@ export class AudioEngine {
       return this.analyser;
     }
 
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      throw new MicrophoneAccessError(classifyGetUserMediaError(error), error);
+    }
     this.context = new AudioContext();
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;

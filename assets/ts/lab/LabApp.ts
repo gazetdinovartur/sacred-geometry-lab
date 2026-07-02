@@ -10,7 +10,8 @@ import { formatSilenceLabel } from '../geometry/SilenceMapper';
 import { downloadPng, downloadSvg } from '../export/exportFiles';
 import { mandalaPngFilename, mandalaSvgFilename } from '../export/exportNames';
 import { exportMandalaPng, exportMandalaSvg } from '../export/mandalaExport';
-import { storePendingPatternSave } from '../export/pendingPatternSave';
+import { MicrophoneAccessError } from '../audio/microphoneAccess';
+import { stashPendingPatternSave } from '../export/pendingPatternSave';
 import { canBuildFlightVideo } from '../export/flightVideoPlan';
 import { validateExportReadiness } from '../export/exportValidation';
 import { VoiceProfile, type NormalizedFeatures } from '../audio/VoiceProfile';
@@ -58,6 +59,7 @@ type LabStore = {
   silenceLabel: string;
   timeline: TimelineEntry[];
   activeSnapshot: number | null;
+  micDenied: boolean;
   primaryLabel: () => string;
   setMode: (mode: LabMode) => void;
   setExportStyle: (style: ExportStyle) => void;
@@ -72,6 +74,7 @@ type LabStore = {
   skipCalibration: () => void;
   recalibrate: () => Promise<void>;
   dismissSaveNotice: () => void;
+  retryMicrophone: () => Promise<void>;
 };
 
 export class LabApp {
@@ -126,6 +129,7 @@ export class LabApp {
     silenceLabel: '—',
     timeline: [],
     activeSnapshot: null,
+    micDenied: false,
 
     primaryLabel: () => this.primaryLabel(),
     setMode: (mode) => this.setMode(mode),
@@ -141,6 +145,7 @@ export class LabApp {
     skipCalibration: () => this.skipCalibration(),
     recalibrate: () => this.recalibrate(),
     dismissSaveNotice: () => this.dismissSaveNotice(),
+    retryMicrophone: () => this.retryMicrophone(),
   };
 
   /** Через Alpine proxy — иначе UI не реагирует на смену mode и др. */
@@ -411,17 +416,35 @@ export class LabApp {
         this.startCalibrationFlow(true);
       } else {
         this.store.isCalibrating = false;
+        this.store.micDenied = false;
         this.store.status = 'Слушаю…';
         if (this.voiceProfile.suggestSoftRecalibration()) {
           this.flashStatus('Профиль давно не обновляли — «Перекалибровать» по желанию');
         }
       }
-    } catch {
-      this.store.status = 'Не удалось получить микрофон. Проверьте разрешение в браузере.';
+    } catch (error) {
+      this.handleMicError(error);
       this.store.isActive = false;
     } finally {
       this.store.isStarting = false;
     }
+  }
+
+  private async retryMicrophone(): Promise<void> {
+    this.store.micDenied = false;
+    this.store.status = '';
+    await this.startSession();
+  }
+
+  private handleMicError(error: unknown): void {
+    if (error instanceof MicrophoneAccessError && error.failure === 'denied') {
+      this.store.micDenied = true;
+      this.store.status = 'Доступ к микрофону запрещён. Разрешите его в настройках браузера — или нажмите кнопку ниже ещё раз.';
+      return;
+    }
+
+    this.store.micDenied = false;
+    this.store.status = 'Не удалось получить микрофон. Проверьте подключение и разрешение в браузере.';
   }
 
   private async pause(): Promise<void> {
@@ -532,8 +555,8 @@ export class LabApp {
       await this.ensureMicLive();
       this.startCalibrationFlow(false);
       this.flashStatus('Калибровка — говорите по подсказкам в круге');
-    } catch {
-      this.store.status = 'Не удалось начать калибровку — проверьте микрофон';
+    } catch (error) {
+      this.handleMicError(error);
     }
   }
 
@@ -556,8 +579,12 @@ export class LabApp {
       this.store.isActive = true;
       this.store.isPaused = false;
       this.store.hasSession = true;
+      this.store.micDenied = false;
       this.frozenIndex = null;
       this.store.activeSnapshot = null;
+    } catch (error) {
+      this.handleMicError(error);
+      throw error;
     } finally {
       this.store.isStarting = false;
     }
@@ -1213,7 +1240,7 @@ export class LabApp {
       });
 
       if (response.status === 401) {
-        storePendingPatternSave(payload);
+        await stashPendingPatternSave(payload);
         window.location.href = '/account?intent=save';
         return;
       }
@@ -1306,5 +1333,7 @@ function ensureStubLabStore(): void {
     onLabPage: false,
     mode: 'live',
     setMode: () => {},
+    micDenied: false,
+    retryMicrophone: async () => {},
   });
 }

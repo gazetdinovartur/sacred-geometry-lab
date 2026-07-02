@@ -129,10 +129,24 @@
         </div>
 
         <div class="lab__controls">
+            <div class="mic-permission"
+                 x-show="$store.lab?.micDenied"
+                 x-cloak>
+                <p class="mic-permission__text">
+                    Без микрофона лаборатория не слышит вас. Если вы нажали «Запретить» — разрешите доступ в настройках браузера для этого сайта.
+                </p>
+                <button type="button"
+                        class="btn btn--primary"
+                        @click="$store.lab.retryMicrophone()"
+                        :disabled="$store.lab.isStarting">
+                    <span x-text="$store.lab.isStarting ? 'Подключение…' : 'Разрешить микрофон'"></span>
+                </button>
+            </div>
+
             <button type="button"
                     class="btn btn--primary"
                     @click="$store.lab.primaryAction()"
-                    x-show="!$store.lab.isActive"
+                    x-show="!$store.lab.isActive && !$store.lab.micDenied"
                     :disabled="$store.lab.isStarting">
                 <span x-text="$store.lab.isStarting ? 'Подключение…' : $store.lab.primaryLabel()"></span>
             </button>

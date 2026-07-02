@@ -7,6 +7,7 @@ namespace App\Controller\Api;
 use App\Entity\Pattern;
 use App\Entity\User;
 use App\Repository\PatternRepository;
+use App\Service\PendingPatternSaveService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -21,7 +22,25 @@ final class PatternApiController extends AbstractController
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly PatternRepository $patterns,
+        private readonly PendingPatternSaveService $pendingPatternSave,
     ) {
+    }
+
+    #[Route('/pending', name: 'api_patterns_pending', methods: ['POST'])]
+    public function pending(Request $request): JsonResponse
+    {
+        $payload = json_decode($request->getContent(), true);
+        if (!is_array($payload)) {
+            return $this->json(['error' => 'Invalid JSON'], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $this->pendingPatternSave->storeInSession($request, $payload);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $this->json(['ok' => true]);
     }
 
     #[Route('', name: 'api_patterns_list', methods: ['GET'])]
@@ -54,15 +73,11 @@ final class PatternApiController extends AbstractController
             return $this->json(['error' => 'Invalid JSON'], Response::HTTP_BAD_REQUEST);
         }
 
-        $pattern = (new Pattern())
-            ->setUser($user)
-            ->setMode((string) ($payload['mode'] ?? 'live'))
-            ->setGeometryStyle((string) ($payload['geometryStyle'] ?? 'classic'))
-            ->setGeometryParams(is_array($payload['geometryParams'] ?? null) ? $payload['geometryParams'] : [])
-            ->setFeatureTimeline(is_array($payload['featureTimeline'] ?? null) ? $payload['featureTimeline'] : [])
-            ->setSvg((string) ($payload['svg'] ?? ''))
-            ->setVoiceProfileHash(isset($payload['voiceProfileHash']) ? (string) $payload['voiceProfileHash'] : null)
-            ->setTitle(isset($payload['title']) ? (string) $payload['title'] : null);
+        try {
+            $pattern = $this->pendingPatternSave->createPattern($user, $payload);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
 
         $this->entityManager->persist($pattern);
         $this->entityManager->flush();
@@ -74,7 +89,7 @@ final class PatternApiController extends AbstractController
         ], Response::HTTP_CREATED);
     }
 
-    #[Route('/{id}', name: 'api_patterns_show', methods: ['GET'])]
+    #[Route('/{id}', name: 'api_patterns_show', methods: ['GET'], requirements: ['id' => '\d+'])]
     #[IsGranted('ROLE_USER')]
     public function show(int $id): JsonResponse
     {
@@ -99,7 +114,7 @@ final class PatternApiController extends AbstractController
         ]);
     }
 
-    #[Route('/{id}', name: 'api_patterns_update', methods: ['PATCH'])]
+    #[Route('/{id}', name: 'api_patterns_update', methods: ['PATCH'], requirements: ['id' => '\d+'])]
     #[IsGranted('ROLE_USER')]
     public function update(int $id, Request $request): JsonResponse
     {
@@ -133,7 +148,7 @@ final class PatternApiController extends AbstractController
         ]);
     }
 
-    #[Route('/{id}', name: 'api_patterns_delete', methods: ['DELETE'])]
+    #[Route('/{id}', name: 'api_patterns_delete', methods: ['DELETE'], requirements: ['id' => '\d+'])]
     #[IsGranted('ROLE_USER')]
     public function delete(int $id): JsonResponse
     {

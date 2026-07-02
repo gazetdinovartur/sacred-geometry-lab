@@ -10,11 +10,11 @@ export type PatternSavePayload = {
 const STORAGE_KEY = 'sgl-pending-pattern';
 
 export function storePendingPatternSave(payload: PatternSavePayload): void {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
 
 export function peekPendingPatternSave(): PatternSavePayload | null {
-  const raw = sessionStorage.getItem(STORAGE_KEY);
+  const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
     return null;
   }
@@ -32,7 +32,7 @@ export function peekPendingPatternSave(): PatternSavePayload | null {
 }
 
 export function clearPendingPatternSave(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_KEY);
 }
 
 export async function postPatternSave(payload: PatternSavePayload): Promise<{ id: number; title: string } | null> {
@@ -62,6 +62,30 @@ export async function postPatternSave(payload: PatternSavePayload): Promise<{ id
   };
 }
 
+/** Сохранить узор в PHP-сессии до OAuth и продублировать в localStorage. */
+export async function stashPendingPatternSave(payload: PatternSavePayload): Promise<boolean> {
+  storePendingPatternSave(payload);
+
+  try {
+    const response = await fetch('/api/patterns/pending', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 /** После входа: отправить отложенный узор на сервер и очистить storage. */
 export async function flushPendingPatternSave(): Promise<{ id: number; title: string } | null> {
   const payload = peekPendingPatternSave();
@@ -69,16 +93,23 @@ export async function flushPendingPatternSave(): Promise<{ id: number; title: st
     return null;
   }
 
-  try {
-    const saved = await postPatternSave(payload);
-    if (saved) {
-      clearPendingPatternSave();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const saved = await postPatternSave(payload);
+      if (saved) {
+        clearPendingPatternSave();
+        return saved;
+      }
+    } catch {
+      // retry below
     }
 
-    return saved;
-  } catch {
-    return null;
+    if (attempt < 3) {
+      await sleep(250 * (attempt + 1));
+    }
   }
+
+  return null;
 }
 
 export function hasPendingPatternSave(): boolean {

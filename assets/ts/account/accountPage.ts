@@ -198,7 +198,10 @@ export function accountPage(): AccountPageData {
       const saved = await flushPendingPatternSave();
       if (saved) {
         window.location.replace(`/account#pattern-${saved.id}`);
+        return;
       }
+
+      window.alert('Не удалось сохранить узор после входа. Попробуйте ещё раз с главной.');
     },
 
     styleLabel: exportStyleLabel,

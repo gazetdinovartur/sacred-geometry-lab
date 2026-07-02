@@ -530,6 +530,10 @@ body.sgl-viewer-open {
   color: #b54a4a;
 }
 
+.flash--success {
+  color: #3d7a55;
+}
+
 @media (max-width: 480px) {
   .pattern-grid {
     grid-template-columns: 1fr;

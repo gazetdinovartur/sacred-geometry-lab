@@ -28,6 +28,7 @@ security:
                 target: home
 
     access_control:
+        - { path: ^/api/patterns/pending, roles: PUBLIC_ACCESS }
         - { path: ^/api/account, roles: ROLE_USER }
         - { path: ^/api/patterns, roles: ROLE_USER }
         - { path: ^/account, roles: PUBLIC_ACCESS }

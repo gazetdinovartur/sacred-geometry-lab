@@ -48,7 +48,7 @@
         <script>
             (function () {
                 var hint = document.getElementById('sgl-pending-save-hint');
-                if (hint && sessionStorage.getItem('sgl-pending-pattern')) {
+                if (hint && localStorage.getItem('sgl-pending-pattern')) {
                     hint.hidden = false;
                 }
             })();

@@ -1,6 +1,6 @@
 import type { LabRenderer } from './LabRenderer';
 import type { FeatureSnapshot, GeometryParams, GeometryStyle, PitchPoint } from '../types';
-import { formatCenterPitch, formatCenterSubline, formatPitchLabel, hzToPitch } from '../audio/PitchNotation';
+import { formatCenterPitch, formatCenterSubline, formatPitchLabel } from '../audio/PitchNotation';
 import { readEqTheme } from './eqTheme';
 
 /** Живой эквалайзер — 64 сегмента по лог-спектру. */
@@ -340,8 +340,6 @@ export class EqLabRenderer implements LabRenderer {
     this.drawLevelRing(ctx, cx, cy, R * 0.34, theme);
     if (this.calibrating) {
       this.drawCalibrationRing(ctx, cx, cy, R, theme);
-    } else {
-      this.drawPitchMarker(ctx, cx, cy, R, theme);
     }
     this.drawCenterReadout(ctx, cx, cy, theme);
 
@@ -515,43 +513,6 @@ export class EqLabRenderer implements LabRenderer {
     }
   }
 
-  private drawPitchMarker(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    R: number,
-    theme: ReturnType<typeof readEqTheme>,
-  ): void {
-    if (this.frequencyHz <= 0) {
-      return;
-    }
-
-    const pitch = hzToPitch(this.frequencyHz);
-    const minHz = 80;
-    const maxHz = 2400;
-    const t = pitch && this.pitchConfidence >= 0.4
-      ? ((pitch.octave * 12 + NOTE_INDEX[pitch.note] + pitch.cents / 100) % 144) / 144
-      : (Math.log(this.frequencyHz) - Math.log(minHz)) / (Math.log(maxHz) - Math.log(minHz));
-    const angle = -Math.PI / 2 + Math.min(Math.max(t, 0), 1) * Math.PI * 2;
-    const pr = R * 0.93;
-    const px = cx + Math.cos(angle) * pr;
-    const py = cy + Math.sin(angle) * pr;
-
-    ctx.fillStyle = theme.text;
-    ctx.beginPath();
-    ctx.arc(px, py, 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = theme.accent;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(angle) * R * 0.5, cy + Math.sin(angle) * R * 0.5);
-    ctx.lineTo(px, py);
-    ctx.globalAlpha = 0.4;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-
   private drawCenterReadout(
     ctx: CanvasRenderingContext2D,
     cx: number,
@@ -593,11 +554,6 @@ export class EqLabRenderer implements LabRenderer {
     ctx.fillText(formatCenterSubline(this.frequencyHz, pct), cx, cy + 14);
   }
 }
-
-const NOTE_INDEX: Record<string, number> = {
-  C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5,
-  'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11,
-};
 
 export function downsampleBars(bars: Float32Array, bands: number): Float32Array {
   const out = new Float32Array(bands);

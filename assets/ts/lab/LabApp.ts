@@ -10,6 +10,7 @@ import { formatSilenceLabel } from '../geometry/SilenceMapper';
 import { downloadPng, downloadSvg } from '../export/exportFiles';
 import { mandalaPngFilename, mandalaSvgFilename } from '../export/exportNames';
 import { exportMandalaPng, exportMandalaSvg } from '../export/mandalaExport';
+import { canBuildFlightVideo } from '../export/flightVideoPlan';
 import { validateExportReadiness } from '../export/exportValidation';
 import { VoiceProfile, type NormalizedFeatures } from '../audio/VoiceProfile';
 import { CalibrationRunner } from './CalibrationRunner';
@@ -24,6 +25,12 @@ import { SessionCapture } from '../export/SessionCapture';
 
 const WARMUP_MS = 900;
 const STATUS_FLASH_MS = 1800;
+
+type ExportQueueJob = {
+  action: ExportAction;
+  style: ExportStyle;
+  size: ExportSize;
+};
 
 type LabStore = {
   onLabPage: boolean;
@@ -43,6 +50,7 @@ type LabStore = {
   calibrationPrompt: string;
   hasSession: boolean;
   status: string;
+  saveNotice: { id: number; title: string } | null;
   rms: number;
   rmsNorm: number;
   toneLabel: string;
@@ -62,6 +70,7 @@ type LabStore = {
   toggleFullscreen: () => Promise<void>;
   skipCalibration: () => void;
   recalibrate: () => Promise<void>;
+  dismissSaveNotice: () => void;
 };
 
 export class LabApp {
@@ -78,6 +87,9 @@ export class LabApp {
   private geometryPipeline = new GeometryPipeline();
   private warmUpUntil = 0;
   private statusTimer = 0;
+  private exportProgressKind: '3d' | 'mandala' | 'zip' | 'save' | null = null;
+  private exportQueue: ExportQueueJob[] = [];
+  private exportQueueActive = false;
   private lastMotifFlash = 0;
   private sessionCapture = new SessionCapture();
   private cinemaBundle: CinemaSessionBundle | null = null;
@@ -106,6 +118,7 @@ export class LabApp {
     calibrationPrompt: '',
     hasSession: false,
     status: '',
+    saveNotice: null,
     rms: 0,
     rmsNorm: 0,
     toneLabel: '—',
@@ -126,6 +139,7 @@ export class LabApp {
     toggleFullscreen: () => this.toggleFullscreen(),
     skipCalibration: () => this.skipCalibration(),
     recalibrate: () => this.recalibrate(),
+    dismissSaveNotice: () => this.dismissSaveNotice(),
   };
 
   /** Через Alpine proxy — иначе UI не реагирует на смену mode и др. */
@@ -180,6 +194,172 @@ export class LabApp {
         this.store.status = '';
       }
     }, STATUS_FLASH_MS);
+  }
+
+  private showSaveNotice(id: number, title: string): void {
+    this.store.saveNotice = { id, title };
+    this.flashStatus('Сохранено в своё место');
+  }
+
+  private dismissSaveNotice(): void {
+    this.store.saveNotice = null;
+  }
+
+  private exportProgressPrefix(kind: '3d' | 'mandala' | 'zip' | 'save'): string {
+    switch (kind) {
+      case '3d':
+        return '3D ·';
+      case 'mandala':
+        return 'Мандала ·';
+      case 'zip':
+        return 'ZIP ·';
+      case 'save':
+        return 'Сохранение ·';
+      default:
+        return '';
+    }
+  }
+
+  private formatExportProgressMessage(message: string): string {
+    const pending = this.exportQueue.length;
+    if (pending === 0) {
+      return message;
+    }
+    return `${message} · ещё ${pending} в очереди`;
+  }
+
+  private enqueueExportJob(job: ExportQueueJob): void {
+    this.exportQueue.push(job);
+    if (this.exportProgressKind !== null) {
+      this.flashStatus(`${exportActionLabel(job.action)} · в очереди (${this.exportQueue.length})`);
+    }
+    void this.drainExportQueue();
+  }
+
+  private async drainExportQueue(): Promise<void> {
+    if (this.exportQueueActive) {
+      return;
+    }
+    this.exportQueueActive = true;
+    try {
+      while (this.exportQueue.length > 0) {
+        const job = this.exportQueue.shift();
+        if (!job) {
+          break;
+        }
+        await this.executeExportJob(job);
+      }
+    } finally {
+      this.exportQueueActive = false;
+    }
+  }
+
+  private async executeExportJob(job: ExportQueueJob): Promise<void> {
+    const prevStyle = this.store.exportStyle;
+    const prevSize = this.store.exportSize;
+    this.store.exportStyle = job.style;
+    this.store.exportSize = job.size;
+    try {
+      switch (job.action) {
+        case 'save':
+          await this.saveToPlace();
+          break;
+        case 'zip':
+          await this.exportSessionZip();
+          break;
+        case 'video':
+          await this.exportSessionVideo();
+          break;
+        case 'cinema':
+          await this.exportSessionCinema();
+          break;
+        default:
+          break;
+      }
+    } finally {
+      this.store.exportStyle = prevStyle;
+      this.store.exportSize = prevSize;
+    }
+  }
+
+  private enqueueCurrentExportAction(): void {
+    const action = this.store.exportAction;
+
+    if (action === 'video') {
+      if (!this.canExportVideoData()) {
+        this.flashStatus('3D-видео — говорите дольше (~10 с) или Process с 2 этапами');
+        return;
+      }
+      if (!LabApp.canExportVideo()) {
+        this.flashStatus('Видео недоступно в этом браузере — Chrome или Firefox');
+        return;
+      }
+    }
+
+    if (action === 'cinema') {
+      if (!this.canExportCinemaData()) {
+        this.flashStatus('Видео мандала — говорите дольше (~15 с), Chrome или Firefox');
+        return;
+      }
+    }
+
+    if (action === 'zip') {
+      if (!this.canExportZip()) {
+        this.flashStatus('ZIP — после Process-сессии с этапами');
+        return;
+      }
+      if (!this.processMode || this.processMode.getSnapshots().length === 0) {
+        this.flashStatus('ZIP доступен после Process-сессии с этапами');
+        return;
+      }
+    }
+
+    if (action === 'save') {
+      if (!this.lastSnapshot) {
+        return;
+      }
+      const snap = this.getExportSnapshot();
+      if (!snap) {
+        this.flashStatus('Нечего сохранять — сначала запишите сессию');
+        return;
+      }
+      const readiness = validateExportReadiness(snap);
+      if (!readiness.ok) {
+        this.flashStatus(readiness.message ?? 'Мало данных для сохранения');
+        return;
+      }
+    }
+
+    this.enqueueExportJob({
+      action,
+      style: this.store.exportStyle,
+      size: this.store.exportSize,
+    });
+  }
+
+  private beginExportProgress(kind: '3d' | 'mandala' | 'zip' | 'save', message: string): void {
+    window.clearTimeout(this.statusTimer);
+    this.exportProgressKind = kind;
+    this.store.status = this.formatExportProgressMessage(message);
+  }
+
+  private setExportProgress(kind: '3d' | 'mandala' | 'zip' | 'save', message: string): void {
+    if (this.exportProgressKind !== kind) {
+      return;
+    }
+    window.clearTimeout(this.statusTimer);
+    this.store.status = this.formatExportProgressMessage(message);
+  }
+
+  private finishExportProgress(kind: '3d' | 'mandala' | 'zip' | 'save'): void {
+    if (this.exportProgressKind !== kind) {
+      return;
+    }
+    const prefix = this.exportProgressPrefix(kind);
+    if (this.store.status.startsWith(prefix)) {
+      this.store.status = '';
+    }
+    this.exportProgressKind = null;
   }
 
   private async primaryAction(): Promise<void> {
@@ -301,6 +481,8 @@ export class LabApp {
     this.store.status = '';
 
     this.normalizeExportAction();
+    this.store.exportSize = DEFAULT_EXPORT_SIZE;
+    this.exportQueue = [];
     this.refreshExportActions();
   }
 
@@ -337,6 +519,7 @@ export class LabApp {
     this.store.isCalibrating = false;
     this.store.calibrationProgress = 0;
     this.store.calibrationPrompt = '';
+    this.store.exportSize = DEFAULT_EXPORT_SIZE;
   }
 
   private async recalibrate(): Promise<void> {
@@ -687,11 +870,11 @@ export class LabApp {
       options.push({ value: 'zip', label: exportActionLabel('zip') });
     }
 
-    if (this.store.processSnapshotCount >= 2 && LabApp.canExportVideo()) {
+    if (this.canExportVideoData()) {
       options.push({ value: 'video', label: exportActionLabel('video') });
     }
 
-    if (this.cinemaBundle && this.cinemaBundle.samples.length >= 12 && LabApp.canExportCinema()) {
+    if (this.canExportCinemaData()) {
       options.push({ value: 'cinema', label: exportActionLabel('cinema') });
     }
 
@@ -708,10 +891,10 @@ export class LabApp {
     if (this.store.exportAction === 'zip' && this.store.processSnapshotCount === 0) {
       this.store.exportAction = 'png';
     }
-    if (this.store.exportAction === 'video' && (this.store.processSnapshotCount < 2 || !LabApp.canExportVideo())) {
+    if (this.store.exportAction === 'video' && !this.canExportVideoData()) {
       this.store.exportAction = 'png';
     }
-    if (this.store.exportAction === 'cinema' && (!this.cinemaBundle || !LabApp.canExportCinema())) {
+    if (this.store.exportAction === 'cinema' && !this.canExportCinemaData()) {
       this.store.exportAction = 'png';
     }
   }
@@ -724,6 +907,23 @@ export class LabApp {
 
   private static canExportCinema(): boolean {
     return LabApp.canExportVideo() && typeof AudioEncoder !== 'undefined';
+  }
+
+  private canExportVideoData(): boolean {
+    if (!LabApp.canExportVideo()) {
+      return false;
+    }
+    return canBuildFlightVideo({
+      cinemaBundle: this.cinemaBundle,
+      processSnapshots: this.processMode?.getSnapshots() ?? [],
+    });
+  }
+
+  private canExportCinemaData(): boolean {
+    if (!LabApp.canExportCinema() || !this.cinemaBundle) {
+      return false;
+    }
+    return this.cinemaBundle.samples.length >= 12;
   }
 
   private showLive(): void {
@@ -817,23 +1017,11 @@ export class LabApp {
   private async runExportAction(): Promise<void> {
     this.normalizeExportAction();
 
-    if (this.store.exportAction === 'save') {
-      await this.saveToPlace();
-      return;
-    }
-
-    if (this.store.exportAction === 'zip') {
-      await this.exportSessionZip();
-      return;
-    }
-
-    if (this.store.exportAction === 'video') {
-      await this.exportSessionVideo();
-      return;
-    }
-
-    if (this.store.exportAction === 'cinema') {
-      await this.exportSessionCinema();
+    if (this.store.exportAction === 'save'
+      || this.store.exportAction === 'zip'
+      || this.store.exportAction === 'video'
+      || this.store.exportAction === 'cinema') {
+      this.enqueueCurrentExportAction();
       return;
     }
 
@@ -878,7 +1066,7 @@ export class LabApp {
       return;
     }
 
-    this.store.status = 'Собираем архив…';
+    this.beginExportProgress('zip', 'ZIP · собираем архив…');
     try {
       const zipName = await exportSessionFrames(
         snapshots,
@@ -887,75 +1075,69 @@ export class LabApp {
         this.store.exportSize,
       );
       if (zipName) {
-        this.flashStatus(`Скачан ${zipName}`);
+        this.flashStatus(`ZIP · скачан ${zipName}`);
       }
     } catch {
-      this.flashStatus('Не удалось собрать архив — попробуйте ещё раз');
+      this.flashStatus('ZIP · не удалось собрать архив');
     } finally {
-      if (this.store.status === 'Собираем архив…') {
-        this.store.status = '';
-      }
+      this.finishExportProgress('zip');
     }
   }
 
   private async exportSessionVideo(): Promise<void> {
-    if (!this.processMode) {
-      return;
-    }
-
-    const snapshots = this.processMode.getSnapshots();
-    if (snapshots.length < 2) {
-      this.flashStatus('Видео — после Process-сессии минимум с 2 этапами');
+    if (!this.canExportVideoData()) {
+      this.flashStatus('3D-видео — говорите дольше (~10 с) или Process с 2 этапами');
       return;
     }
 
     if (!LabApp.canExportVideo()) {
-      this.flashStatus('Видео недоступно в этом браузере — используйте Chrome или Firefox');
+      this.flashStatus('Видео недоступно в этом браузере — Chrome или Firefox');
       return;
     }
 
-    this.store.status = 'Готовим видео… 0%';
+    this.beginExportProgress('3d', '3D · готовим… 0%');
     try {
       const { exportSessionVideo } = await import('../export/exportSessionVideo');
       const videoName = await exportSessionVideo(
-        snapshots,
-        this.store.exportStyle,
+        {
+          cinemaBundle: this.cinemaBundle,
+          processSnapshots: this.processMode?.getSnapshots() ?? [],
+        },
         this.store.exportSize,
         (state) => {
           const pct = Math.round(state.progress * 100);
           if (state.phase === 'done') {
-            this.store.status = '';
             return;
           }
-          this.store.status = state.phase === 'encode'
-            ? `Кодируем видео… ${pct}%`
-            : `Рендер кадров… ${state.frame}/${state.totalFrames} (${pct}%)`;
+          this.setExportProgress(
+            '3d',
+            state.phase === 'encode'
+              ? `3D · звук… ${pct}%`
+              : `3D · кадр ${state.frame}/${state.totalFrames} (${pct}%)`,
+          );
         },
       );
       if (videoName) {
-        this.flashStatus(`Скачан ${videoName}`);
+        this.flashStatus(`3D · скачан ${videoName}`);
       }
     } catch {
-      this.flashStatus('Не удалось собрать видео — попробуйте меньший размер');
+      this.flashStatus('3D · не удалось собрать видео — попробуйте 1600 px');
     } finally {
-      if (this.store.status.startsWith('Готовим видео') || this.store.status.startsWith('Рендер') || this.store.status.startsWith('Кодируем')) {
-        this.store.status = '';
-      }
+      this.finishExportProgress('3d');
     }
   }
 
   private async exportSessionCinema(): Promise<void> {
+    if (!this.canExportCinemaData()) {
+      this.flashStatus('Видео мандала — говорите дольше (~15 с), Chrome или Firefox');
+      return;
+    }
+
     if (!this.cinemaBundle) {
-      this.flashStatus('Кино — после сессии со звуком (Chrome / Firefox)');
       return;
     }
 
-    if (!LabApp.canExportCinema()) {
-      this.flashStatus('Кино недоступно в этом браузере');
-      return;
-    }
-
-    this.store.status = 'Готовим кино… 0%';
+    this.beginExportProgress('mandala', 'Мандала · готовим… 0%');
     try {
       const { exportSessionCinemaVideo } = await import('../export/exportSessionCinemaVideo');
       const name = await exportSessionCinemaVideo(
@@ -965,25 +1147,25 @@ export class LabApp {
         (state) => {
           const pct = Math.round(state.progress * 100);
           if (state.phase === 'done') {
-            this.store.status = '';
             return;
           }
           if (state.phase === 'encode') {
-            this.store.status = `Синхронизируем голос… ${pct}%`;
+            this.setExportProgress('mandala', `Мандала · звук… ${pct}%`);
             return;
           }
-          this.store.status = `Кино: кадры ${state.frame}/${state.totalFrames} (${pct}%)`;
+          this.setExportProgress(
+            'mandala',
+            `Мандала · кадр ${state.frame}/${state.totalFrames} (${pct}%)`,
+          );
         },
       );
       if (name) {
-        this.flashStatus(`Скачан ${name}`);
+        this.flashStatus(`Мандала · скачан ${name}`);
       }
     } catch {
-      this.flashStatus('Не удалось собрать кино — попробуйте 1600 px');
+      this.flashStatus('Мандала · не удалось собрать видео — попробуйте 1600 px');
     } finally {
-      if (this.store.status.startsWith('Готовим кино') || this.store.status.startsWith('Кино:') || this.store.status.startsWith('Синхронизируем')) {
-        this.store.status = '';
-      }
+      this.finishExportProgress('mandala');
     }
   }
 
@@ -1020,29 +1202,34 @@ export class LabApp {
       voiceProfileHash: this.voiceProfile.hash(),
     };
 
-    const response = await fetch('/api/patterns', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify(payload),
-    });
+    this.beginExportProgress('save', 'Сохранение · отправляем…');
+    try {
+      const response = await fetch('/api/patterns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
 
-    if (response.status === 401) {
-      window.location.href = '/account';
-      return;
-    }
-
-    if (!response.ok) {
-      this.store.status = 'Не удалось положить в своё место';
-      return;
-    }
-
-    this.store.status = 'Лежит в своём месте';
-    window.setTimeout(() => {
-      if (this.store.status === 'Лежит в своём месте') {
-        this.store.status = '';
+      if (response.status === 401) {
+        window.location.href = '/account';
+        return;
       }
-    }, 2500);
+
+      if (!response.ok) {
+        this.flashStatus('Сохранение · не удалось положить в своё место');
+        return;
+      }
+
+      const data = await response.json() as { id?: number; title?: string };
+      if (typeof data.id === 'number') {
+        this.showSaveNotice(data.id, data.title?.trim() || 'Узор');
+      } else {
+        this.flashStatus('Сохранено в своё место');
+      }
+    } finally {
+      this.finishExportProgress('save');
+    }
   }
 
   private mountDevPanel(): void {

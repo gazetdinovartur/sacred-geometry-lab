@@ -67,7 +67,11 @@ final class PatternApiController extends AbstractController
         $this->entityManager->persist($pattern);
         $this->entityManager->flush();
 
-        return $this->json(['id' => $pattern->getId()], Response::HTTP_CREATED);
+        return $this->json([
+            'id' => $pattern->getId(),
+            'title' => $pattern->getTitle() ?? 'Узор',
+            'createdAt' => $pattern->getCreatedAt()->format(DATE_ATOM),
+        ], Response::HTTP_CREATED);
     }
 
     #[Route('/{id}', name: 'api_patterns_show', methods: ['GET'])]

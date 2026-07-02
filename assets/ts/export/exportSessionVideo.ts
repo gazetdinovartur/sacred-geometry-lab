@@ -1,15 +1,21 @@
 import { Muxer, ArrayBufferTarget } from 'webm-muxer';
-import type { ExportSize, ExportStyle } from './exportOptions';
-import type { FeatureSnapshot } from '../types';
-import { renderMandalaSnapshot } from './mandalaExport';
+import type { ExportSize } from './exportOptions';
+import type { CinemaSessionBundle, FeatureSnapshot } from '../types';
+import { FlightVideoRenderer } from '../three/FlightVideoRenderer';
 import { triggerDownloadBlob } from './exportFiles';
 import { sessionVideoFilename } from './exportNames';
-import { buildVideoFramePlans, DEFAULT_VIDEO_CONFIG } from './videoTimeline';
+import { buildFlightVideoPlan } from './flightVideoPlan';
+import { encodeAudioBlobToMuxer } from './audioMuxer';
+import { videoFrameTiming } from './videoFrameTiming';
 
 export function canExportSessionVideo(): boolean {
   return typeof VideoEncoder !== 'undefined'
     && typeof VideoFrame !== 'undefined'
     && typeof createImageBitmap !== 'undefined';
+}
+
+function canMuxAudio(): boolean {
+  return typeof AudioEncoder !== 'undefined';
 }
 
 export type VideoExportProgress = {
@@ -19,29 +25,30 @@ export type VideoExportProgress = {
   totalFrames: number;
 };
 
-/** Process-сессия → WebM (VP9), offscreen vector render без мыла. */
+export type FlightVideoInput = {
+  cinemaBundle: CinemaSessionBundle | null;
+  processSnapshots: FeatureSnapshot[];
+};
+
+/** Сессия → WebM: 3D-тunnel + голос (если записан). */
 export async function exportSessionVideo(
-  snapshots: FeatureSnapshot[],
-  style: ExportStyle,
+  input: FlightVideoInput,
   size: ExportSize,
   onProgress?: (state: VideoExportProgress) => void,
 ): Promise<string> {
-  if (snapshots.length < 2) {
-    throw new Error('Video export needs at least 2 process stages');
-  }
   if (!canExportSessionVideo()) {
     throw new Error('VideoEncoder is not supported in this browser');
   }
 
   onProgress?.({ phase: 'plan', progress: 0, frame: 0, totalFrames: 0 });
-  const plans = buildVideoFramePlans(snapshots, DEFAULT_VIDEO_CONFIG);
+  const { plans, fps, audioBlob } = buildFlightVideoPlan(input);
   const totalFrames = plans.length;
   if (totalFrames === 0) {
     throw new Error('Video timeline is empty');
   }
 
-  const codec = await pickVp9Codec(size);
-  const fps = DEFAULT_VIDEO_CONFIG.fps;
+  const includeAudio = Boolean(audioBlob && audioBlob.size > 0 && canMuxAudio());
+  const codec = await pickVp9Codec(size, fps);
   const bitrate = size >= 3200 ? 22_000_000 : 12_000_000;
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
@@ -52,6 +59,15 @@ export async function exportSessionVideo(
       height: size,
       frameRate: fps,
     },
+    ...(includeAudio
+      ? {
+          audio: {
+            codec: 'A_OPUS' as const,
+            sampleRate: 48000,
+            numberOfChannels: 1,
+          },
+        }
+      : {}),
   });
 
   const encoder = new VideoEncoder({
@@ -69,35 +85,54 @@ export async function exportSessionVideo(
     framerate: fps,
   });
 
+  const flight = new FlightVideoRenderer(size);
+  let cameraZ = 920;
+
   onProgress?.({ phase: 'render', progress: 0, frame: 0, totalFrames });
 
-  for (let i = 0; i < plans.length; i += 1) {
-    const bitmap = await snapshotToBitmap(plans[i].snapshot, style, size);
-    const frame = new VideoFrame(bitmap, {
-      timestamp: Math.round(i * 1_000_000 / fps),
-      duration: Math.round(1_000_000 / fps),
-    });
-    bitmap.close();
+  try {
+    for (let i = 0; i < plans.length; i += 1) {
+      const plan = plans[i];
+      const snap = plan.snapshot;
+      const energy = snap.params.opacity;
+      const rms = snap.features.rms;
+      const flux = snap.features.spectralFlux;
+      const level = snap.levelNorm ?? snap.features.spectralLevel;
+      cameraZ -= 5 + energy * 6 + rms * 30 + flux * 14 + level * 8;
 
-    encoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
-    frame.close();
+      flight.renderFrame(snap, cameraZ, plan.timeMs / 1000);
+      const bitmap = await flight.toImageBitmap();
+      const { timestamp, duration } = videoFrameTiming(plans, i, fps);
+      const frame = new VideoFrame(bitmap, { timestamp, duration });
+      bitmap.close();
 
-    onProgress?.({
-      phase: i === plans.length - 1 ? 'encode' : 'render',
-      progress: (i + 1) / totalFrames,
-      frame: i + 1,
-      totalFrames,
-    });
+      encoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+      frame.close();
 
-    // Yield to UI thread between heavy renders.
-    if (i % 3 === 2) {
-      await yieldToUi();
+      onProgress?.({
+        phase: includeAudio && i === plans.length - 1 ? 'encode' : 'render',
+        progress: (i + 1) / (totalFrames + (includeAudio ? 1 : 0)),
+        frame: i + 1,
+        totalFrames,
+      });
+
+      if (i % 2 === 1) {
+        await yieldToUi();
+      }
     }
-  }
 
-  await encoder.flush();
-  encoder.close();
-  muxer.finalize();
+    await encoder.flush();
+    encoder.close();
+
+    if (includeAudio && audioBlob) {
+      onProgress?.({ phase: 'encode', progress: 0.92, frame: totalFrames, totalFrames });
+      await encodeAudioBlobToMuxer(muxer, audioBlob);
+    }
+
+    muxer.finalize();
+  } finally {
+    flight.dispose();
+  }
 
   const blob = new Blob([target.buffer], { type: 'video/webm' });
   const filename = sessionVideoFilename();
@@ -107,37 +142,20 @@ export async function exportSessionVideo(
   return filename;
 }
 
-async function snapshotToBitmap(
-  snapshot: FeatureSnapshot,
-  style: ExportStyle,
-  size: ExportSize,
-): Promise<ImageBitmap> {
-  const renderer = renderMandalaSnapshot(snapshot, style, size);
-  renderer.flushToCanvas();
-  const canvas = renderer.getCanvas();
-  return createImageBitmap(canvas);
-}
-
-async function pickVp9Codec(size: ExportSize): Promise<string> {
-  const candidates = [
-    'vp09.00.10.08',
-    'vp9',
-    'vp8',
-  ];
-
+async function pickVp9Codec(size: ExportSize, fps: number): Promise<string> {
+  const candidates = ['vp09.00.10.08', 'vp9', 'vp8'];
   for (const codec of candidates) {
     const support = await VideoEncoder.isConfigSupported({
       codec,
       width: size,
       height: size,
       bitrate: size >= 3200 ? 22_000_000 : 12_000_000,
-      framerate: DEFAULT_VIDEO_CONFIG.fps,
+      framerate: fps,
     });
     if (support.supported) {
       return codec;
     }
   }
-
   throw new Error('VP9/VP8 encoder is not supported');
 }
 

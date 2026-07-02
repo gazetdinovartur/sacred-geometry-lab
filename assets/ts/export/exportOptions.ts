@@ -10,8 +10,8 @@ export type ExportSize = 800 | 1600 | 3200;
 export const DEFAULT_EXPORT_SIZE: ExportSize = 1600;
 
 export const EXPORT_SIZE_OPTIONS: { value: ExportSize; label: string }[] = [
-  { value: 800, label: '800×800' },
   { value: 1600, label: '1600×1600' },
+  { value: 800, label: '800×800' },
   { value: 3200, label: '3200×3200' },
 ];
 
@@ -29,9 +29,9 @@ export function exportActionLabel(action: ExportAction): string {
     case 'zip':
       return 'Скачать ZIP сессии';
     case 'video':
-      return 'Скачать видео';
+      return 'Скачать видео · 3D';
     case 'cinema':
-      return 'Скачать кино (голос)';
+      return 'Скачать Видео · Мандала';
     case 'save':
       return 'Сохранить в своё место';
     default:

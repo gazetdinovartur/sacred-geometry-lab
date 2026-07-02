@@ -20,7 +20,7 @@ export function sessionVideoFilename(date = new Date()): string {
 }
 
 export function sessionCinemaVideoFilename(date = new Date()): string {
-  return `sgl-kino-${exportTimestampTag(date)}.webm`;
+  return `sgl-мандала-${exportTimestampTag(date)}.webm`;
 }
 
 export function mandalaPngFilename(date = new Date()): string {

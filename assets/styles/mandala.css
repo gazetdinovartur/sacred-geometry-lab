@@ -439,6 +439,38 @@ button.export-control {
   justify-content: center;
 }
 
+.save-notice {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem 0.85rem;
+  margin-top: 0.55rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
+}
+
+.save-notice__text {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text);
+  text-align: center;
+}
+
+.save-notice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.save-notice__link {
+  text-decoration: none;
+}
+
 @media (max-width: 640px) {
   .widgets {
     grid-template-columns: repeat(2, 1fr);

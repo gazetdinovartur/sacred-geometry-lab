@@ -22,12 +22,13 @@ final class AccountController extends AbstractController
         $rows = $patterns->findByUserOrdered($user);
 
         return $this->render('account/index.html.twig', [
+            'user_label' => $user->getDisplayName() ?? $user->getEmail(),
             'patterns_data' => array_map(static fn (\App\Entity\Pattern $p): array => [
                 'id' => $p->getId(),
                 'title' => $p->getTitle() ?? 'Узор',
                 'mode' => $p->getMode(),
                 'geometryStyle' => $p->getGeometryStyle(),
-                'createdAt' => $p->getCreatedAt()->format('d.m.Y H:i'),
+                'createdAt' => $p->getCreatedAt()->format(DATE_ATOM),
                 'svg' => $p->getSvg(),
             ], $rows),
         ]);

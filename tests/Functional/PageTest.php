@@ -25,6 +25,24 @@ final class PageTest extends WebTestCase
         self::assertStringContainsString($expectedFragment, $client->getResponse()->getContent() ?: '');
     }
 
+    public function testEthicsRedirectsToHow(): void
+    {
+        $client = static::createClient();
+        $client->request('GET', '/ethics');
+
+        self::assertResponseRedirects('/how#ethics', 301);
+    }
+
+    public function testHowPageContainsEthicsSection(): void
+    {
+        $client = static::createClient();
+        $client->request('GET', '/how');
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('Этика и конфиденциальность', $client->getResponse()->getContent() ?: '');
+        self::assertStringContainsString('Мы не храним сказанные слова', $client->getResponse()->getContent() ?: '');
+    }
+
     public function testUnknownRouteReturns404(): void
     {
         $client = static::createClient();
@@ -48,7 +66,6 @@ final class PageTest extends WebTestCase
     {
         yield 'home' => ['/', 'Как ты сейчас?'];
         yield 'about' => ['/about', 'О проекте'];
-        yield 'ethics' => ['/ethics', 'Этика и конфиденциальность'];
         yield 'how' => ['/how', 'Как это работает'];
         yield 'account login' => ['/account', 'Своё место'];
     }

@@ -21,6 +21,8 @@ security:
         main:
             lazy: true
             provider: app_user_provider
+            custom_authenticators:
+                - App\Security\OAuthAuthenticator
             logout:
                 path: account_logout
                 target: home

@@ -7,7 +7,6 @@ import { buildMandalaPalette, paletteStroke, type MandalaPalette } from './manda
 import {
   drawFlowerScaffold,
   drawHarmonicRings,
-  drawPitchMarker,
   drawProcessOrbit,
   drawProcessSpectrumLayers,
   drawRhythmStar,
@@ -248,7 +247,6 @@ export class MandalaRenderer implements LabRenderer {
       drawProcessOrbit(this.group, center, R, processSnapshots, params, this.palette);
     }
     drawRmsRing(this.group, center, R, params, stroke);
-    drawPitchMarker(this.group, center, R, features, params, this.palette);
 
     if (params.breathRing > 0.05) {
       this.group.addChild(new paper.Path.Circle({

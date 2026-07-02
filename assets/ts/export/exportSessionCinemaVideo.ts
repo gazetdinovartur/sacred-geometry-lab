@@ -4,8 +4,9 @@ import type { CinemaSessionBundle } from '../types';
 import { renderMandalaSnapshot } from './mandalaExport';
 import { triggerDownloadBlob } from './exportFiles';
 import { sessionCinemaVideoFilename } from './exportNames';
-import { buildCinemaFramePlans, CINEMA_VIDEO_CONFIG } from './cinemaVideoTimeline';
+import { buildCinemaFramePlans, SYNCED_CINEMA_VIDEO_CONFIG } from './cinemaVideoTimeline';
 import { encodeAudioBlobToMuxer } from './audioMuxer';
+import { videoFrameTiming } from './videoFrameTiming';
 import type { VideoExportProgress } from './exportSessionVideo';
 
 export function canExportSessionCinemaVideo(): boolean {
@@ -30,13 +31,13 @@ export async function exportSessionCinemaVideo(
   }
 
   onProgress?.({ phase: 'plan', progress: 0, frame: 0, totalFrames: 0 });
-  const plans = buildCinemaFramePlans(bundle);
+  const plans = buildCinemaFramePlans(bundle, SYNCED_CINEMA_VIDEO_CONFIG);
   const totalFrames = plans.length;
   if (totalFrames === 0) {
     throw new Error('Cinema timeline is empty');
   }
 
-  const fps = CINEMA_VIDEO_CONFIG.fps;
+  const fps = SYNCED_CINEMA_VIDEO_CONFIG.fps;
   const codec = await pickVp9Codec(size, fps);
   const bitrate = size >= 3200 ? 22_000_000 : 12_000_000;
   const target = new ArrayBufferTarget();
@@ -74,10 +75,8 @@ export async function exportSessionCinemaVideo(
 
   for (let i = 0; i < plans.length; i += 1) {
     const bitmap = await snapshotToBitmap(plans[i].snapshot, style, size);
-    const frame = new VideoFrame(bitmap, {
-      timestamp: Math.round(i * 1_000_000 / fps),
-      duration: Math.round(1_000_000 / fps),
-    });
+    const { timestamp, duration } = videoFrameTiming(plans, i, fps);
+    const frame = new VideoFrame(bitmap, { timestamp, duration });
     bitmap.close();
     encoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
     frame.close();

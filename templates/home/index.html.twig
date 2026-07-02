@@ -169,12 +169,12 @@
                     <span class="export-field__label">Размер</span>
                     <select class="export-control"
                             x-model.number="$store.lab.exportSize">
+                        <option :value="1600">1600×1600</option>
                         <option :value="800">800×800</option>
-                        <option :value="1600" selected>1600×1600</option>
                         <option :value="3200">3200×3200</option>
                     </select>
                 </label>
-                <label class="export-field">
+                <label class="export-field" x-show="$store.lab.exportAction !== 'video'">
                     <span class="export-field__label">Стиль</span>
                     <select class="export-control"
                             x-model="$store.lab.exportStyle">
@@ -196,6 +196,26 @@
                         class="btn btn--ghost export-control"
                         @click="$store.lab.runExportAction()"
                         x-text="$store.lab.exportActionButtonLabel()"></button>
+            </div>
+            <div class="save-notice"
+                 x-show="$store.lab.saveNotice"
+                 x-cloak
+                 role="status"
+                 aria-live="polite">
+                <p class="save-notice__text">
+                    Узор «<strong x-text="$store.lab.saveNotice?.title"></strong>» сохранён в своё место
+                </p>
+                <div class="save-notice__actions">
+                    <a class="btn btn--primary btn--sm save-notice__link"
+                       :href="`/account#pattern-${$store.lab.saveNotice?.id}`">
+                        Открыть
+                    </a>
+                    <button type="button"
+                            class="btn btn--ghost btn--sm"
+                            @click="$store.lab.dismissSaveNotice()">
+                        Закрыть
+                    </button>
+                </div>
             </div>
         </div>
     </div>

@@ -41,6 +41,7 @@ export async function encodeAudioBlobToMuxer(muxer: Muxer, audioBlob: Blob): Pro
       numberOfFrames: frameLength,
       numberOfChannels: 1,
       timestamp: Math.round((offset / TARGET_SAMPLE_RATE) * 1_000_000),
+      duration: Math.round((frameLength / TARGET_SAMPLE_RATE) * 1_000_000),
       data: slice,
     });
 

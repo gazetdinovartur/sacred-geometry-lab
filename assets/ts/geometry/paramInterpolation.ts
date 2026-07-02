@@ -17,6 +17,18 @@ export function easeInOutCubic(t: number): number {
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 }
 
+/** Мягче cubic — для экспорта видео. */
+export function easeInOutQuint(t: number): number {
+  const x = Math.min(Math.max(t, 0), 1);
+  return x < 0.5 ? 16 * x ** 5 : 1 - Math.pow(-2 * x + 2, 5) / 2;
+}
+
+/** Синус — самые плавные переходы, без рывков на середине. */
+export function easeInOutSine(t: number): number {
+  const x = Math.min(Math.max(t, 0), 1);
+  return -(Math.cos(Math.PI * x) - 1) / 2;
+}
+
 export function lerpGeometryParams(a: GeometryParams, b: GeometryParams, t: number): GeometryParams {
   return {
     radius: lerp(a.radius, b.radius, t),

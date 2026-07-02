@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Security\OAuthAuthenticator;
 use App\Service\VkIdOAuthService;
 use Doctrine\ORM\EntityManagerInterface;
 use KnpU\OAuth2ClientBundle\Client\ClientRegistry;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Authentication\UserAuthenticatorInterface;
 
 final class OAuthController extends AbstractController
 {
@@ -21,7 +23,8 @@ final class OAuthController extends AbstractController
         private readonly ClientRegistry $clients,
         private readonly UserRepository $users,
         private readonly EntityManagerInterface $entityManager,
-        private readonly Security $security,
+        private readonly UserAuthenticatorInterface $userAuthenticator,
+        private readonly OAuthAuthenticator $oauthAuthenticator,
         private readonly VkIdOAuthService $vkOAuth,
     ) {
     }
@@ -33,7 +36,7 @@ final class OAuthController extends AbstractController
     }
 
     #[Route('/auth/google/callback', name: 'auth_google_callback')]
-    public function googleCallback(): Response
+    public function googleCallback(Request $request): Response
     {
         $googleUser = $this->clients->getClient('google')->fetchUser();
         $user = $this->users->findOrCreate(
@@ -43,7 +46,7 @@ final class OAuthController extends AbstractController
             $googleUser->getName(),
         );
         $this->entityManager->flush();
-        $this->security->login($user, 'main');
+        $this->loginUser($request, $user);
 
         return $this->redirectToRoute('account');
     }
@@ -116,7 +119,7 @@ final class OAuthController extends AbstractController
                 $name,
             );
             $this->entityManager->flush();
-            $this->security->login($user, 'main');
+            $this->loginUser($request, $user);
             $request->getSession()->remove('vk_code_verifier');
         } catch (\Throwable $e) {
             $this->addFlash('error', 'VK: не удалось войти. Проверьте ключи в .env.local');
@@ -125,5 +128,10 @@ final class OAuthController extends AbstractController
         }
 
         return $this->redirectToRoute('account');
+    }
+
+    private function loginUser(Request $request, User $user): void
+    {
+        $this->userAuthenticator->authenticateUser($user, $this->oauthAuthenticator, $request);
     }
 }

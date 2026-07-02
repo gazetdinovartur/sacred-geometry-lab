@@ -1,4 +1,5 @@
 import type { CinemaSessionBundle, FeatureSnapshot, SessionTimelineSample } from '../types';
+import { createSilentTimelineSample } from '../export/cinemaVideoTimeline';
 import { downsampleTrail } from '../geometry/voiceMandalaLayers';
 
 const SAMPLE_INTERVAL_MS = 83;
@@ -26,6 +27,7 @@ export class SessionCapture {
   prepare(captureStartedAt: number): void {
     this.reset();
     this.captureStartedAt = captureStartedAt;
+    this.samples.push(createSilentTimelineSample(0));
   }
 
   startAudio(stream: MediaStream): void {

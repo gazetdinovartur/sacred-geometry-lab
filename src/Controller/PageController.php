@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -17,9 +18,9 @@ final class PageController extends AbstractController
     }
 
     #[Route('/ethics', name: 'ethics')]
-    public function ethics(): Response
+    public function ethics(): RedirectResponse
     {
-        return $this->render('pages/ethics.html.twig');
+        return new RedirectResponse($this->generateUrl('how').'#ethics', Response::HTTP_MOVED_PERMANENTLY);
     }
 
     #[Route('/privacy', name: 'privacy')]

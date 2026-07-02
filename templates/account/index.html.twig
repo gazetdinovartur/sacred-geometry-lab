@@ -1,66 +1,95 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}Мои узоры — Sacred Geometry Lab{% endblock %}
+{% block title %}Своё место — Sacred Geometry Lab{% endblock %}
 
 {% block body %}
-<script type="application/json" id="sgl-account-patterns">{{ patterns_data|default([])|json_encode|raw }}</script>
-<article class="page prose" x-data="accountPage()">
-    <div class="account-header">
-        <h1>Мои узоры</h1>
-        <div class="account-header__actions">
-            <button type="button"
-                    class="btn btn--ghost btn--sm"
-                    x-show="patterns.length > 0"
-                    x-cloak
-                    :disabled="downloadingArchive"
-                    @click="downloadPngArchive()">
-                <span x-text="downloadingArchive ? 'Собираем…' : 'PNG архив'"></span>
-            </button>
-            <a href="{{ path('account_logout') }}" class="btn btn--ghost btn--sm">Выйти</a>
+<script type="application/json" id="sgl-account-data">{{ {
+    userLabel: user_label|default(null),
+    patterns: patterns_data|default([])
+}|json_encode|raw }}</script>
+<div class="account-shell" x-data="accountPage()" x-init="init()">
+    <article class="page prose account-page">
+        <div class="account-header">
+            <div class="account-header__intro">
+                <h1>Своё место</h1>
+                <p class="account-header__lead" x-show="userLabel" x-cloak>
+                    <span x-text="userLabel"></span>, здесь хранятся ваши сохранённые узоры.
+                </p>
+                <p class="account-header__lead" x-show="!userLabel && patterns.length > 0" x-cloak>
+                    Здесь хранятся ваши сохранённые узоры.
+                </p>
+            </div>
+            <div class="account-header__actions">
+                <button type="button"
+                        class="btn btn--ghost btn--sm"
+                        x-show="patterns.length > 0"
+                        x-cloak
+                        :disabled="downloadingArchive"
+                        @click="downloadPngArchive()">
+                    <span x-text="downloadingArchive ? 'Собираем…' : 'PNG архив'"></span>
+                </button>
+                <a href="{{ path('home') }}" class="btn btn--ghost btn--sm">На главную</a>
+                <a href="{{ path('account_logout') }}" class="btn btn--ghost btn--sm">Выйти</a>
+            </div>
         </div>
-    </div>
 
-    <section class="voice-profile-panel">
-        <h2 class="voice-profile-panel__title">Профиль голоса</h2>
-        <p class="voice-profile-panel__text">
-            Калибровка идёт автоматически во время сессии на главной.
-            <span x-text="voiceStatus"></span>
+        <template x-if="patterns.length === 0">
+            <section class="account-empty" aria-live="polite">
+                <div class="account-empty__visual" aria-hidden="true">
+                    <span class="account-empty__ring account-empty__ring--outer"></span>
+                    <span class="account-empty__ring account-empty__ring--mid"></span>
+                    <span class="account-empty__ring account-empty__ring--inner"></span>
+                </div>
+                <h2 class="account-empty__title" x-text="emptyStateTitle()"></h2>
+                <p class="account-empty__text" x-text="emptyStateText()"></p>
+                <ol class="account-empty__steps">
+                    <li>На главной проведите сессию и нажмите «Стоп».</li>
+                    <li>Выберите «Сохранить в своё место» в меню экспорта.</li>
+                    <li>Узор появится здесь — с датой, названием и просмотром.</li>
+                </ol>
+                <p class="account-empty__note">
+                    Запись голоса не хранится — только форма мандалы и её параметры.
+                </p>
+                <a href="{{ path('home') }}" class="btn btn--primary">Перейти на главную</a>
+            </section>
+        </template>
+
+        <p class="account-grid-lead" x-show="patterns.length > 0" x-cloak>
+            <span x-text="patternsCountLabel()"></span>
+            · нажмите на миниатюру, чтобы открыть крупнее · стрелки ← → листают узоры
         </p>
-        <button type="button" class="btn btn--ghost btn--sm" @click="resetVoiceProfile()">Сбросить профиль</button>
-    </section>
 
-    <template x-if="patterns.length === 0">
-        <div>
-            <p>Пока пусто. Создайте мандалу на главной и выберите «Сохранить в своё место».</p>
-            <p><a href="{{ path('home') }}" class="btn btn--primary">На главную</a></p>
-        </div>
-    </template>
-
-    <ul class="pattern-list" x-show="patterns.length > 0" x-cloak>
-        <template x-for="pattern in patterns" :key="pattern.id">
-            <li class="pattern-list__item">
-                <div class="pattern-list__head">
-                    <div class="pattern-list__meta">
+        <ul class="pattern-grid" x-show="patterns.length > 0" x-cloak>
+            <template x-for="pattern in patterns" :key="pattern.id">
+                <li class="pattern-card" :id="`pattern-${pattern.id}`">
+                    <button type="button"
+                            class="pattern-card__thumb-btn"
+                            @click="openViewer(pattern)"
+                            :aria-label="`Открыть «${pattern.title}»`">
+                        <span class="pattern-card__thumb" x-html="pattern.svg" aria-hidden="true"></span>
+                        <span class="pattern-card__zoom">Крупнее</span>
+                    </button>
+                    <div class="pattern-card__body">
                         <template x-if="editingId !== pattern.id">
-                            <div class="pattern-list__title-row">
-                                <strong x-text="pattern.title"></strong>
+                            <div class="pattern-card__title-row">
+                                <h2 class="pattern-card__title" x-text="pattern.title"></h2>
                                 <button type="button"
-                                        class="btn btn--ghost btn--sm pattern-list__rename"
+                                        class="btn btn--ghost btn--sm pattern-card__rename"
                                         @click="startRename(pattern)">
                                     Переименовать
                                 </button>
                             </div>
                         </template>
                         <template x-if="editingId === pattern.id">
-                            <form class="pattern-list__rename-form"
+                            <form class="pattern-card__rename-form"
                                   @submit.prevent="saveRename()">
                                 <input type="text"
-                                       class="pattern-list__rename-input"
+                                       class="pattern-card__rename-input"
                                        x-model="editTitle"
                                        maxlength="120"
                                        aria-label="Название узора"
                                        @keydown.escape.prevent="cancelRename()">
-                                <div class="pattern-list__rename-actions">
+                                <div class="pattern-card__rename-actions">
                                     <button type="submit" class="btn btn--primary btn--sm">Сохранить</button>
                                     <button type="button"
                                             class="btn btn--ghost btn--sm"
@@ -68,33 +97,131 @@
                                         Отмена
                                     </button>
                                 </div>
-                                <p class="pattern-list__rename-error"
+                                <p class="pattern-card__rename-error"
                                    x-show="renameError"
                                    x-text="renameError"></p>
                             </form>
                         </template>
-                        <span x-text="`${pattern.createdAt} · ${pattern.mode} · ${styleLabel(pattern.geometryStyle)}`"></span>
-                    </div>
-                    <div class="pattern-list__actions">
-                        <button type="button"
-                                class="btn btn--ghost btn--sm"
-                                @click="downloadPattern(pattern)">
-                            SVG
-                        </button>
-                        <button type="button"
-                                class="btn btn--ghost btn--sm"
-                                @click="deletePattern(pattern.id)">
-                            Удалить
-                        </button>
-                    </div>
-                </div>
-                <div class="pattern-list__preview" x-html="pattern.svg"></div>
-            </li>
-        </template>
-    </ul>
 
-    <section class="account-danger">
-        <button type="button" class="btn btn--ghost btn--sm" @click="deleteAccount()">Удалить аккаунт</button>
-    </section>
-</article>
+                        <time class="pattern-card__when"
+                              :datetime="pattern.createdAt">
+                            <span class="pattern-card__date" x-text="formatCreatedDate(pattern.createdAt)"></span>
+                            <span class="pattern-card__time" x-text="formatCreatedTime(pattern.createdAt)"></span>
+                        </time>
+
+                        <div class="pattern-card__badges">
+                            <span class="pattern-card__badge" x-text="modeLabel(pattern.mode)"></span>
+                            <span class="pattern-card__badge pattern-card__badge--muted"
+                                  x-text="styleLabel(pattern.geometryStyle)"></span>
+                        </div>
+
+                        <div class="pattern-card__actions">
+                            <button type="button"
+                                    class="btn btn--ghost btn--sm"
+                                    @click="downloadPatternPng(pattern)">
+                                PNG
+                            </button>
+                            <button type="button"
+                                    class="btn btn--ghost btn--sm"
+                                    @click="downloadPattern(pattern)">
+                                SVG
+                            </button>
+                            <button type="button"
+                                    class="btn btn--ghost btn--sm"
+                                    @click="deletePattern(pattern.id)">
+                                Удалить
+                            </button>
+                        </div>
+                    </div>
+                </li>
+            </template>
+        </ul>
+
+        <section class="account-danger">
+            <button type="button" class="btn btn--ghost btn--sm" @click="deleteAccount()">Удалить аккаунт</button>
+        </section>
+    </article>
+
+    <div class="pattern-viewer"
+         x-show="viewerPattern"
+         x-cloak
+         @keydown.escape.window="closeViewer()"
+         @keydown.window="handleViewerKey($event)"
+         role="dialog"
+         aria-modal="true"
+         :aria-label="viewerPattern ? `Узор «${viewerPattern.title}»` : ''">
+        <button type="button"
+                class="pattern-viewer__backdrop"
+                @click="closeViewer()"
+                aria-label="Закрыть просмотр"></button>
+        <button type="button"
+                class="pattern-viewer__nav pattern-viewer__nav--prev"
+                x-show="viewerHasPrev()"
+                x-cloak
+                @click.stop="stepViewer(-1)"
+                aria-label="Предыдущий узор">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M14 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </button>
+        <button type="button"
+                class="pattern-viewer__nav pattern-viewer__nav--next"
+                x-show="viewerHasNext()"
+                x-cloak
+                @click.stop="stepViewer(1)"
+                aria-label="Следующий узор">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </button>
+        <div class="pattern-viewer__panel">
+            <header class="pattern-viewer__head">
+                <div class="pattern-viewer__meta">
+                    <h2 class="pattern-viewer__title" x-text="viewerPattern?.title"></h2>
+                    <p class="pattern-viewer__when">
+                        <span x-text="viewerPattern ? formatCreatedDate(viewerPattern.createdAt) : ''"></span>
+                        <span x-text="viewerPattern ? formatCreatedTime(viewerPattern.createdAt) : ''"></span>
+                    </p>
+                </div>
+                <button type="button"
+                        class="icon-btn pattern-viewer__close"
+                        @click="closeViewer()"
+                        aria-label="Закрыть">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </header>
+            <div class="pattern-viewer__stage">
+                <template x-if="viewerPattern">
+                    <div class="pattern-viewer__svg-host"
+                         :key="viewerPattern.id"
+                         x-html="viewerPattern.svg"></div>
+                </template>
+            </div>
+            <footer class="pattern-viewer__foot">
+                <span class="pattern-viewer__counter"
+                      x-show="patterns.length > 1"
+                      x-text="viewerPositionLabel()"></span>
+                <button type="button"
+                        class="btn btn--ghost btn--sm"
+                        x-show="viewerPattern"
+                        @click="viewerPattern && downloadPatternPng(viewerPattern)">
+                    PNG
+                </button>
+                <button type="button"
+                        class="btn btn--ghost btn--sm"
+                        x-show="viewerPattern"
+                        @click="viewerPattern && downloadPattern(viewerPattern)">
+                    SVG
+                </button>
+                <button type="button"
+                        class="btn btn--primary btn--sm"
+                        @click="closeViewer()">
+                    Закрыть
+                </button>
+            </footer>
+        </div>
+    </div>
+</div>
 {% endblock %}

@@ -15,6 +15,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Security\Http\Authentication\UserAuthenticatorInterface;
 
 final class OAuthController extends AbstractController
@@ -65,7 +66,7 @@ final class OAuthController extends AbstractController
         $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
         $request->getSession()->set('vk_code_verifier', $verifier);
 
-        $redirect = $request->getSchemeAndHost().$this->generateUrl('auth_vk_callback');
+        $redirect = $this->generateUrl('auth_vk_callback', [], UrlGeneratorInterface::ABSOLUTE_URL);
         $url = sprintf(
             'https://id.vk.com/authorize?response_type=code&client_id=%s&redirect_uri=%s&scope=email&state=vk&code_challenge=%s&code_challenge_method=S256',
             urlencode($clientId),
@@ -100,7 +101,7 @@ final class OAuthController extends AbstractController
             $token = $this->vkOAuth->exchangeCode(
                 $code,
                 $verifier,
-                $request->getSchemeAndHost().$this->generateUrl('auth_vk_callback'),
+                $this->generateUrl('auth_vk_callback', [], UrlGeneratorInterface::ABSOLUTE_URL),
                 $clientId,
                 is_string($clientSecret) ? $clientSecret : null,
             );

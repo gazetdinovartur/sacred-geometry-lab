@@ -1285,6 +1285,7 @@ export function createLabShell(): { theme: string; toggleTheme: () => void } {
 export function bootstrapLab(): LabApp | null {
   const canvas = document.getElementById('mandala-canvas');
   if (!(canvas instanceof HTMLCanvasElement)) {
+    ensureStubLabStore();
     return null;
   }
 
@@ -1292,4 +1293,16 @@ export function bootstrapLab(): LabApp | null {
   lab.init(canvas);
 
   return lab;
+}
+
+function ensureStubLabStore(): void {
+  if (Alpine.store('lab')) {
+    return;
+  }
+
+  Alpine.store('lab', {
+    onLabPage: false,
+    mode: 'live',
+    setMode: () => {},
+  });
 }

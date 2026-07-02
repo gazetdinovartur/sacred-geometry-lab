@@ -5,15 +5,15 @@
             <div class="mode-switch" x-show="$store.lab?.onLabPage">
                 <button type="button"
                         class="mode-switch__btn"
-                        :class="{ 'is-active': $store.lab.mode === 'live' }"
-                        @click="$store.lab.setMode('live')"
+                        :class="{ 'is-active': $store.lab?.mode === 'live' }"
+                        @click="$store.lab?.setMode('live')"
                         title="Мгновенная реакция. В тишине — медленное затухание.">
                     Live
                 </button>
                 <button type="button"
                         class="mode-switch__btn"
-                        :class="{ 'is-active': $store.lab.mode === 'process' }"
-                        @click="$store.lab.setMode('process')"
+                        :class="{ 'is-active': $store.lab?.mode === 'process' }"
+                        @click="$store.lab?.setMode('process')"
                         title="Один контур — штрих за штрихом.">
                     Process
                 </button>

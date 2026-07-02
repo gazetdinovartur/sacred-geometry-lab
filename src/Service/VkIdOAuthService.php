@@ -6,29 +6,38 @@ namespace App\Service;
 
 final class VkIdOAuthService
 {
-    private const TOKEN_URL = 'https://id.vk.com/oauth2/auth';
-    private const USER_URL = 'https://id.vk.com/oauth2/user_info';
+    private const TOKEN_URL = 'https://id.vk.ru/oauth2/auth';
+    private const USER_URL = 'https://id.vk.ru/oauth2/user_info';
 
     /**
-     * @return array{access_token: string, user_id: int|string}
+     * @return array{access_token: string, user_id?: int|string}
      */
-    public function exchangeCode(string $code, string $codeVerifier, string $redirectUri, string $clientId, ?string $clientSecret = null): array
-    {
+    public function exchangeCode(
+        string $code,
+        string $codeVerifier,
+        string $redirectUri,
+        string $clientId,
+        string $deviceId,
+        string $state,
+        ?string $serviceToken = null,
+    ): array {
         $payload = [
             'grant_type' => 'authorization_code',
             'code' => $code,
             'code_verifier' => $codeVerifier,
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
+            'device_id' => $deviceId,
+            'state' => $state,
         ];
 
-        if ($clientSecret !== null && $clientSecret !== '') {
-            $payload['client_secret'] = $clientSecret;
+        if ($serviceToken !== null && $serviceToken !== '') {
+            $payload['service_token'] = $serviceToken;
         }
 
         $response = $this->post(self::TOKEN_URL, $payload);
         if (!isset($response['access_token'])) {
-            throw new \RuntimeException($response['error_description'] ?? $response['error'] ?? 'VK token exchange failed');
+            throw new \RuntimeException($this->formatApiError($response, 'VK token exchange failed'));
         }
 
         return $response;
@@ -45,14 +54,14 @@ final class VkIdOAuthService
         ]);
 
         if (!isset($response['user']['user_id'])) {
-            throw new \RuntimeException('VK user_info failed');
+            throw new \RuntimeException($this->formatApiError($response, 'VK user_info failed'));
         }
 
         return $response;
     }
 
     /**
-     * @param array<string, string> $data
+     * @param array<string, mixed> $data
      *
      * @return array<string, mixed>
      */
@@ -79,5 +88,24 @@ final class VkIdOAuthService
         }
 
         return $decoded;
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     */
+    private function formatApiError(array $response, string $fallback): string
+    {
+        $error = $response['error'] ?? null;
+        $description = $response['error_description'] ?? null;
+
+        if (is_string($error) && is_string($description)) {
+            return sprintf('%s: %s (%s)', $fallback, $description, $error);
+        }
+
+        if (is_string($error)) {
+            return sprintf('%s: %s', $fallback, $error);
+        }
+
+        return $fallback;
     }
 }

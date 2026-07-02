@@ -104,7 +104,11 @@ class User implements UserInterface
 
     public function getUserIdentifier(): string
     {
-        return $this->email ?? sprintf('%s:%s', $this->oauthProvider, $this->oauthId);
+        if ($this->id === null) {
+            throw new \LogicException('User id is not assigned yet.');
+        }
+
+        return (string) $this->id;
     }
 
     /** @return list<string> */

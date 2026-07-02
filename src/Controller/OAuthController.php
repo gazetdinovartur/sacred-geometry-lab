@@ -10,6 +10,7 @@ use App\Security\OAuthAuthenticator;
 use App\Service\VkIdOAuthService;
 use Doctrine\ORM\EntityManagerInterface;
 use KnpU\OAuth2ClientBundle\Client\ClientRegistry;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -27,6 +28,7 @@ final class OAuthController extends AbstractController
         private readonly UserAuthenticatorInterface $userAuthenticator,
         private readonly OAuthAuthenticator $oauthAuthenticator,
         private readonly VkIdOAuthService $vkOAuth,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -55,22 +57,28 @@ final class OAuthController extends AbstractController
     #[Route('/auth/vk', name: 'auth_vk_start')]
     public function vkStart(Request $request): Response
     {
-        $clientId = $_ENV['OAUTH_VK_ID'] ?? '';
+        $clientId = $this->vkClientId();
         if ($clientId === '') {
-            $this->addFlash('error', 'VK ID не настроен. Добавьте OAUTH_VK_ID и OAUTH_VK_SECRET в .env.local');
+            $this->addFlash('error', 'VK ID не настроен. Добавьте OAUTH_VK_ID в .env.local');
 
             return $this->redirectToRoute('account');
         }
 
         $verifier = bin2hex(random_bytes(32));
         $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
-        $request->getSession()->set('vk_code_verifier', $verifier);
+        $state = bin2hex(random_bytes(16));
+
+        $session = $request->getSession();
+        $session->set('vk_code_verifier', $verifier);
+        $session->set('vk_oauth_state', $state);
 
         $redirect = $this->generateUrl('auth_vk_callback', [], UrlGeneratorInterface::ABSOLUTE_URL);
         $url = sprintf(
-            'https://id.vk.com/authorize?response_type=code&client_id=%s&redirect_uri=%s&scope=email&state=vk&code_challenge=%s&code_challenge_method=S256',
+            'https://id.vk.ru/authorize?response_type=code&client_id=%s&redirect_uri=%s&scope=%s&state=%s&code_challenge=%s&code_challenge_method=S256',
             urlencode($clientId),
             urlencode($redirect),
+            urlencode('email'),
+            urlencode($state),
             urlencode($challenge),
         );
 
@@ -82,7 +90,23 @@ final class OAuthController extends AbstractController
     {
         $code = $request->query->get('code');
         if (!is_string($code) || $code === '') {
-            $this->addFlash('error', 'VK: не получен код авторизации');
+            $error = $request->query->get('error_description', $request->query->get('error', 'не получен код'));
+            $this->addFlash('error', 'VK: '.(is_string($error) ? $error : 'не получен код авторизации'));
+
+            return $this->redirectToRoute('account');
+        }
+
+        $deviceId = $request->query->get('device_id');
+        if (!is_string($deviceId) || $deviceId === '') {
+            $this->addFlash('error', 'VK: не получен device_id. Попробуйте войти снова.');
+
+            return $this->redirectToRoute('account');
+        }
+
+        $state = $request->query->get('state');
+        $expectedState = $request->getSession()->get('vk_oauth_state');
+        if (!is_string($state) || !is_string($expectedState) || !hash_equals($expectedState, $state)) {
+            $this->addFlash('error', 'VK: проверка state не прошла. Попробуйте войти снова.');
 
             return $this->redirectToRoute('account');
         }
@@ -94,8 +118,12 @@ final class OAuthController extends AbstractController
             return $this->redirectToRoute('account');
         }
 
-        $clientId = $_ENV['OAUTH_VK_ID'] ?? '';
-        $clientSecret = $_ENV['OAUTH_VK_SECRET'] ?? null;
+        $clientId = $this->vkClientId();
+        if ($clientId === '') {
+            $this->addFlash('error', 'VK ID не настроен на сервере');
+
+            return $this->redirectToRoute('account');
+        }
 
         try {
             $token = $this->vkOAuth->exchangeCode(
@@ -103,7 +131,9 @@ final class OAuthController extends AbstractController
                 $verifier,
                 $this->generateUrl('auth_vk_callback', [], UrlGeneratorInterface::ABSOLUTE_URL),
                 $clientId,
-                is_string($clientSecret) ? $clientSecret : null,
+                $deviceId,
+                $state,
+                $this->vkServiceToken(),
             );
             $profile = $this->vkOAuth->fetchUser((string) $token['access_token'], $clientId);
             $vkUser = $profile['user'];
@@ -121,9 +151,13 @@ final class OAuthController extends AbstractController
             );
             $this->entityManager->flush();
             $this->loginUser($request, $user);
-            $request->getSession()->remove('vk_code_verifier');
+
+            $session = $request->getSession();
+            $session->remove('vk_code_verifier');
+            $session->remove('vk_oauth_state');
         } catch (\Throwable $e) {
-            $this->addFlash('error', 'VK: не удалось войти. Проверьте ключи в .env.local');
+            $this->logger->error('VK OAuth callback failed', ['exception' => $e]);
+            $this->addFlash('error', 'VK: не удалось войти. Проверьте ключи и тип приложения в кабинете VK ID.');
 
             return $this->redirectToRoute('account');
         }
@@ -134,5 +168,20 @@ final class OAuthController extends AbstractController
     private function loginUser(Request $request, User $user): void
     {
         $this->userAuthenticator->authenticateUser($user, $this->oauthAuthenticator, $request);
+    }
+
+    private function vkClientId(): string
+    {
+        return $_ENV['OAUTH_VK_ID'] ?? $_SERVER['OAUTH_VK_ID'] ?? '';
+    }
+
+    /**
+     * Сервисный ключ для конфиденциального приложения (VK ID → Ключи доступа).
+     */
+    private function vkServiceToken(): ?string
+    {
+        $token = $_ENV['OAUTH_VK_SERVICE_TOKEN'] ?? $_SERVER['OAUTH_VK_SERVICE_TOKEN'] ?? null;
+
+        return is_string($token) && $token !== '' ? $token : null;
     }
 }
